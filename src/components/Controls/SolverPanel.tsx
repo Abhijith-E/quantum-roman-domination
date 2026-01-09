@@ -7,13 +7,15 @@ import { BruteForceSolver } from '../../core/solvers/BruteForceSolver';
 import { SimulatedAnnealingSolver } from '../../core/solvers/SimulatedAnnealingSolver';
 import { GeneticAlgorithmSolver } from '../../core/solvers/GeneticAlgorithmSolver';
 import { VQESolver } from '../../core/solvers/VQESolver';
+import { SRDFVariant } from '../../core/graph/RDF';
 
 interface SolverPanelProps {
     graph: Graph;
+    variant?: SRDFVariant;
     onSolutionFound: (assignment: Map<number, RDFValue>, weight: number, timeMs: number) => void;
 }
 
-export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, onSolutionFound }) => {
+export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolutionFound }) => {
     const [isRunning, setIsRunning] = useState(false);
     const [selectedAlgo, setSelectedAlgo] = useState<string>('Greedy');
     const [lastStats, setLastStats] = useState<{ time: number, weight: number, algo: string } | null>(null);
@@ -37,12 +39,14 @@ export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, onSolutionFound
         }
 
         setIsRunning(true);
+        // Small delay to allow UI to update to "Running..."
         await new Promise(r => setTimeout(r, 100));
 
         try {
             const solverFactory = algorithms[selectedAlgo];
             const solver = solverFactory();
-            const result = await solver.solve(graph);
+            // Pass the selected variant to the solver
+            const result = await solver.solve(graph, variant);
 
             onSolutionFound(result.assignment, result.weight, result.executionTimeMs);
             setLastStats({

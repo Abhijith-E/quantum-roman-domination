@@ -1,72 +1,130 @@
 import { Graph } from '../graph/Graph';
 import type { RDFValue } from '../graph/Graph';
-import { RDFProblem } from '../graph/RDF';
+import { RDFProblem, SRDFVariant } from '../graph/RDF';
 import type { Solver, SolverResult } from './Solver';
 
 export class GreedySolver implements Solver {
     name = "Greedy Heuristic";
 
-    async solve(graph: Graph): Promise<SolverResult> {
+    async solve(graph: Graph, variant: SRDFVariant = SRDFVariant.C_Weighted): Promise<SolverResult> {
         const startTime = performance.now();
-        const problem = new RDFProblem(graph);
+        const problem = new RDFProblem(graph, variant);
+        const assignment = new Map<number, RDFValue>();
 
         // Initialize all to 0
-        const assignment = new Map<number, RDFValue>();
-        for (const v of graph.vertices.values()) {
-            assignment.set(v.id, 0);
+        for (const vId of graph.vertices.keys()) {
+            assignment.set(vId, 0);
         }
 
-        let undefendedExist = true;
-        while (undefendedExist) {
-            // Find set of vertices that are currently undefended
-            const undefendedVertices: number[] = [];
-            for (const v of graph.vertices.values()) {
-                if (assignment.get(v.id) === 0 && !this.isDefended(graph, v.id, assignment)) {
-                    undefendedVertices.push(v.id);
-                }
-            }
+        // Greedy Step 1: Cover undefended vertices
+        // Sort vertices by degree (descending) or some heuristic? 
+        // For SRDF, we might want to prioritize vertices that are hard to defend (few positive neighbors).
 
-            if (undefendedVertices.length === 0) {
-                undefendedExist = false;
-                break;
-            }
+        // Simple heuristic: Iterate and defend
+        let changed = true;
+        while (changed) {
+            changed = false;
+            const undefended = problem.getViolations(assignment);
+
+            if (undefended.length === 0) break;
+
+            // Pick an undefended vertex
+            // Heuristic: Pick one with max positive neighbors to maximize "bang for buck"?
+            // Or pick one with ANY positive neighbor?
+            const v = undefended[0]; // Simple selection
+
+            // Try to find a neighbor to set to 2
+            const neighbors = graph.getNeighbors(v);
+
+            // Prefer setting a neighbor that is already 1 or 2? No, 2 is already defending.
+            // Prefer setting a neighbor that covers MOST undefended vertices.
 
             let bestCandidate = -1;
-            let maxCovered = -1;
+            let maxCover = -1;
 
-            for (const v of graph.vertices.values()) {
-                if (assignment.get(v.id) === 2) continue; // Already 2
+            // Candidates: v itself (set to 1 or 2) OR favorable neighbors (set to 2)
+            // Option A: Set f(v) = 1 (Weight +1, defends v)
+            // Option B: Set f(v) = 2 (Weight +2, defends v + positive neighbors)
+            // Option C: Set f(u) = 2 (Weight +2, defends u + positive neighbors including v)
 
-                const coveredInfo = this.simulateSet2(graph, v.id, assignment);
-                if (coveredInfo > maxCovered) {
-                    maxCovered = coveredInfo;
-                    bestCandidate = v.id;
+            // Let's try to set a neighbor u to 2 if feasible
+            for (const u of neighbors) {
+                // Check edge sign if variant requires positive
+                const edge = graph.getEdge(v, u);
+                const isPositive = edge?.sign === 1;
+
+                // If variant A or C, usually need positive edge to defend.
+                // If variant B, positive edge defends but negative blocks.
+
+                // Simplified: Just look for a positive neighbor to upgrade
+                if (isPositive) {
+                    // Evaluate impact
+                    if ((assignment.get(u) ?? 0) < 2) {
+                        // hypothetically set to 2
+                        assignment.set(u, 2);
+                        const newViolations = problem.getViolations(assignment).length;
+                        assignment.set(u, 0); // revert
+
+                        const profit = undefended.length - newViolations;
+                        if (profit > maxCover) {
+                            maxCover = profit;
+                            bestCandidate = u;
+                        }
+                    }
                 }
             }
 
-            if (bestCandidate !== -1) {
+            // Also consider setting v itself to 1 or 2
+            // Setting v=1 costs 1, covers v
+            // Setting v=2 costs 2, covers v + neighbors
+
+            // ... Logic can get complex. 
+            // Fallback: If no good neighbor, set v=1 (self-defense)
+            if (bestCandidate !== -1 && maxCover > 0) {
                 assignment.set(bestCandidate, 2);
+                changed = true;
             } else {
-                assignment.set(undefendedVertices[0], 2);
-            }
-        }
-
-        // Optimization: Redundant 2s -> 0
-        for (const v of graph.vertices.values()) {
-            if (assignment.get(v.id) === 2) {
-                assignment.set(v.id, 0);
+                // Try setting v=2?
+                assignment.set(v, 2);
+                // If that doesn't work (e.g. massive negative attacks?), try v=1?
                 if (!problem.isValid(assignment)) {
-                    assignment.set(v.id, 2); // Revert
+                    // check if v is still violation
+                    if (problem.getViolations(assignment).includes(v)) {
+                        // 2 didn't fix it? (maybe blocking constraint)
+                        // Try 1?
+                        assignment.set(v, 1);
+                    }
                 }
+                changed = true;
             }
         }
 
-        // Optimization: 2s -> 1
-        for (const v of graph.vertices.values()) {
-            if (assignment.get(v.id) === 2) {
-                assignment.set(v.id, 1);
-                if (!problem.isValid(assignment)) {
-                    assignment.set(v.id, 2); // Revert
+        // Optimization Phase: Try to reduce values while maintaining validity
+        // 2 -> 1, 1 -> 0, 2 -> 0
+        // Iterate multiple times
+        for (let i = 0; i < 2; i++) {
+            for (const v of graph.vertices.keys()) {
+                const current = assignment.get(v) ?? 0;
+                if (current > 0) {
+                    // Try reducing
+                    const reduced = (current - 1) as RDFValue;
+                    assignment.set(v, reduced);
+
+                    // Check cost/validity
+                    // If invalid, revert
+                    if (!problem.isValid(assignment)) {
+                        assignment.set(v, current);
+                    } else {
+                        // Valid reduction! But does it increase attack penalties?
+                        // calculateTotalCost includes penalties.
+                        const costAfter = problem.calculateTotalCost(assignment);
+                        assignment.set(v, current);
+                        const costBefore = problem.calculateTotalCost(assignment);
+
+                        if (costAfter < costBefore) {
+                            assignment.set(v, reduced);
+                        }
+                    }
                 }
             }
         }
@@ -78,30 +136,5 @@ export class GreedySolver implements Solver {
             isValid: problem.isValid(assignment),
             executionTimeMs: endTime - startTime
         };
-    }
-
-    private isDefended(graph: Graph, vId: number, assignment: Map<number, RDFValue>): boolean {
-        const val = assignment.get(vId) ?? 0;
-        if (val !== 0) return true;
-
-        const neighbors = graph.getNeighbors(vId);
-        return neighbors.some(n => (assignment.get(n) ?? 0) === 2);
-    }
-
-    private simulateSet2(graph: Graph, candidateId: number, currentAssignment: Map<number, RDFValue>): number {
-        let newDefendedCount = 0;
-
-        // Check candidate itself
-        if (!this.isDefended(graph, candidateId, currentAssignment)) {
-            newDefendedCount++;
-        }
-
-        // Check neighbors
-        for (const nId of graph.getNeighbors(candidateId)) {
-            if (!this.isDefended(graph, nId, currentAssignment)) {
-                newDefendedCount++;
-            }
-        }
-        return newDefendedCount;
     }
 }

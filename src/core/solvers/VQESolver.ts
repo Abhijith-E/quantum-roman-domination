@@ -1,30 +1,33 @@
 import { Graph } from '../graph/Graph';
 import type { RDFValue } from '../graph/Graph';
-import { RDFProblem } from '../graph/RDF';
-import type { Solver, SolverResult } from '../solvers/Solver';
+import { RDFProblem, SRDFVariant } from '../graph/RDF';
+import type { Solver, SolverResult } from './Solver';
 import { QuantumCircuit } from '../quantum/QuantumCircuit';
 
 export class VQESolver implements Solver {
     name = "Quantum VQE";
-    layers = 2; // Depth of circuit
-    maxIterations = 200;
+    layers = 1; // Optimized for demonstration speed
+    maxIterations = 100; // Reduced from 200 for faster feedback
 
-    // SPSA parameters
     a = 0.1;
     c = 0.1;
-    A = 20; // Stability constant
+    A = 20;
     alpha = 0.602;
     gamma = 0.101;
 
-    async solve(graph: Graph): Promise<SolverResult> {
+    async solve(graph: Graph, variant: SRDFVariant = SRDFVariant.C_Weighted): Promise<SolverResult> {
         const startTime = performance.now();
-        const problem = new RDFProblem(graph);
+        const problem = new RDFProblem(graph, variant); // Use variant
 
         if (graph.vertices.size > 10) {
-            throw new Error("VQE currently limited to 10 vertices (20 qubits) for browser simulation performance.");
+            throw new Error("VQE currently limited to 10 vertices (20 qubits).");
         }
 
+        // Circuit construction currently hardcoded for basic entanglement. 
+        // Ideally update QuantumCircuit.createRDFAnsatz to be SRDF-aware (anti-correlation for negative).
+        // For now, we use the standard ansatz but optimize against the SRDF cost function.
         const circuit = QuantumCircuit.createRDFAnsatz(graph, this.layers);
+
         let params = new Array(circuit.numParams).fill(0).map(() => Math.random() * 2 * Math.PI);
 
         let bestEnergy = Infinity;
@@ -38,18 +41,13 @@ export class VQESolver implements Solver {
             vertices.forEach((v, i) => {
                 const b0 = (index >> (i * 2)) & 1;
                 const b1 = (index >> (i * 2 + 1)) & 1;
-
                 const valCode = (b1 << 1) | b0;
 
                 if (valCode === 0) assignment.set(v, 0);
                 else if (valCode === 1) assignment.set(v, 1);
                 else if (valCode === 2) assignment.set(v, 2);
-                else {
-                    valid = false;
-                    assignment.set(v, 0);
-                }
+                else { valid = false; assignment.set(v, 0); }
             });
-
             return valid ? assignment : null;
         };
 
@@ -64,8 +62,9 @@ export class VQESolver implements Solver {
                 const assignment = decode(i);
                 let cost = 0;
                 if (!assignment) {
-                    cost = 100; // Invalid encoding penalty
+                    cost = 100;
                 } else {
+                    // Here we use the variant-aware cost function!
                     cost = problem.calculateTotalCost(assignment, 15);
                 }
                 expectedEnergy += probs[i] * cost;
@@ -73,23 +72,22 @@ export class VQESolver implements Solver {
             return expectedEnergy;
         };
 
+        // SPSA Loop
         for (let k = 0; k < this.maxIterations; k++) {
             const ak = this.a / Math.pow(k + 1 + this.A, this.alpha);
             const ck = this.c / Math.pow(k + 1, this.gamma);
 
             const delta = params.map(() => Math.random() < 0.5 ? 1 : -1);
-
             const paramsPlus = params.map((p, i) => p + ck * delta[i]);
             const paramsMinus = params.map((p, i) => p - ck * delta[i]);
 
             const yPlus = evaluate(paramsPlus);
             const yMinus = evaluate(paramsMinus);
-
             const g = (yPlus - yMinus) / (2 * ck);
 
             params = params.map((p, i) => p - ak * g * delta[i]);
 
-            if (graph.vertices.size <= 5 || k % 10 === 0) {
+            if (k % 10 === 0) {
                 const currentE = evaluate(params);
                 if (currentE < bestEnergy) {
                     bestEnergy = currentE;
@@ -98,11 +96,7 @@ export class VQESolver implements Solver {
             }
         }
 
-        // Final check
-        const currentE = evaluate(bestParams);
-        if (currentE < bestEnergy) bestEnergy = currentE;
-
-        // Final Sampling
+        // Final
         const finalState = circuit.run(bestParams);
         const finalProbs = finalState.getProbabilities();
 

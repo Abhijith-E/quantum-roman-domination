@@ -1,58 +1,64 @@
 import { Graph } from '../graph/Graph';
 import type { RDFValue } from '../graph/Graph';
-import { RDFProblem } from '../graph/RDF';
+import { RDFProblem, SRDFVariant } from '../graph/RDF';
 import type { Solver, SolverResult } from './Solver';
 
 export class SimulatedAnnealingSolver implements Solver {
     name = "Simulated Annealing";
-    iterations = 10000;
     initialTemp = 100;
     coolingRate = 0.995;
+    minTemp = 0.1;
 
-    async solve(graph: Graph): Promise<SolverResult> {
+    async solve(graph: Graph, variant: SRDFVariant = SRDFVariant.C_Weighted): Promise<SolverResult> {
         const startTime = performance.now();
-        const problem = new RDFProblem(graph);
+        const problem = new RDFProblem(graph, variant);
 
         let currentAssignment = new Map<number, RDFValue>();
+        // Random init
         for (const v of graph.vertices.keys()) {
             currentAssignment.set(v, Math.floor(Math.random() * 3) as RDFValue);
         }
 
-        let currentEnergy = problem.calculateTotalCost(currentAssignment);
+        // Cost: Weight + 10 * Violations + Attacks
+        // RDFProblem.calculateTotalCost handles this
+        let currentCost = problem.calculateTotalCost(currentAssignment, 20);
 
         let bestAssignment = new Map(currentAssignment);
-        let bestEnergy = currentEnergy;
+        let bestCost = currentCost;
 
         let temp = this.initialTemp;
-        const keys = Array.from(graph.vertices.keys());
 
-        for (let i = 0; i < this.iterations; i++) {
-            if (keys.length === 0) break;
-            const randomV = keys[Math.floor(Math.random() * keys.length)];
+        while (temp > this.minTemp) {
+            // Neighbor: Change one vertex
+            const neighborAssignment = new Map(currentAssignment);
+            const vertices = Array.from(graph.vertices.keys());
+            const v = vertices[Math.floor(Math.random() * vertices.length)];
 
-            const oldVal = currentAssignment.get(randomV) ?? 0;
-            let newVal: RDFValue = oldVal;
+            const oldVal = neighborAssignment.get(v) ?? 0;
+            let newVal = oldVal;
             while (newVal === oldVal) {
                 newVal = Math.floor(Math.random() * 3) as RDFValue;
             }
+            neighborAssignment.set(v, newVal);
 
-            const nextAssignment = new Map(currentAssignment);
-            nextAssignment.set(randomV, newVal);
+            const neighborCost = problem.calculateTotalCost(neighborAssignment, 20);
 
-            const nextEnergy = problem.calculateTotalCost(nextAssignment);
-            const delta = nextEnergy - currentEnergy;
+            const delta = neighborCost - currentCost;
 
             if (delta < 0 || Math.random() < Math.exp(-delta / temp)) {
-                currentAssignment = nextAssignment;
-                currentEnergy = nextEnergy;
+                currentAssignment = neighborAssignment;
+                currentCost = neighborCost;
 
-                if (currentEnergy < bestEnergy) {
-                    bestEnergy = currentEnergy;
+                if (currentCost < bestCost) {
+                    bestCost = currentCost;
                     bestAssignment = new Map(currentAssignment);
                 }
             }
 
             temp *= this.coolingRate;
+
+            // Optimization: if perfect solution found (valid, low weight), could stop? 
+            // Hard to know what is 'optimal'.
         }
 
         const endTime = performance.now();
@@ -60,8 +66,7 @@ export class SimulatedAnnealingSolver implements Solver {
             assignment: bestAssignment,
             weight: problem.calculateWeight(bestAssignment),
             isValid: problem.isValid(bestAssignment),
-            executionTimeMs: endTime - startTime,
-            iterations: this.iterations
+            executionTimeMs: endTime - startTime
         };
     }
 }

@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react';
 import { Graph } from './core/graph/Graph';
 import type { RDFValue } from './core/graph/Graph';
-import { RDFProblem } from './core/graph/RDF';
+import { RDFProblem, SRDFVariant } from './core/graph/RDF';
 import { GraphCanvas } from './components/GraphCanvas/GraphCanvas';
 import { SolverPanel } from './components/Controls/SolverPanel';
+import { ProblemTypeSelector } from './components/Controls/ProblemTypeSelector';
 
 function App() {
   const [graph] = useState(() => new Graph());
@@ -11,7 +12,15 @@ function App() {
   const [assignment, setAssignment] = useState<Map<number, RDFValue>>(new Map());
   const [mode, setMode] = useState<'edit' | 'assign'>('edit');
 
-  const problem = useMemo(() => new RDFProblem(graph), [graph]);
+  const [isSigned, setIsSigned] = useState(false);
+  const [variant, setVariant] = useState<SRDFVariant>(SRDFVariant.C_Weighted);
+
+  const problem = useMemo(() => {
+    // If not signed, use PositiveOnly to mimic standard RDF where all edges are 'friendly'
+    // (Assuming user hasn't created negative edges, but even if they did, standard RDF usually ignores sign? 
+    //  Actually standard RDF on signed graph is undefined. We treat all edges as positive.)
+    return new RDFProblem(graph, isSigned ? variant : SRDFVariant.A_PositiveOnly);
+  }, [graph, isSigned, variant]);
 
   const handleGraphChange = () => {
     setVersion(v => v + 1);
@@ -66,6 +75,13 @@ function App() {
 
   const isValid = problem.isValid(assignment);
   const weight = problem.calculateWeight(assignment);
+  const violations = problem.getViolations(assignment).length;
+  // We can add attack checks here if we want to show them purely for info
+  // Even if !isSigned, user might want to see? No, only valid for Signed.
+  // We don't have getAttackConflicts exposed yet in the interface used here? 
+  // It is there in RDFProblem class.
+  // Note: getAttackConflicts returns Edge[].
+  const attacks = isSigned ? problem.getAttackConflicts(assignment).length : 0;
 
   return (
     <div className="min-h-screen bg-slate-50 p-8 font-sans text-slate-900">
@@ -93,7 +109,9 @@ function App() {
               </button>
             </div>
             <div className="text-sm text-slate-500">
-              {mode === 'edit' ? 'Click to add node, Drag to move, Shift+Drag to connect' : 'Click node to cycle value (0->1->2)'}
+              {mode === 'edit'
+                ? 'Click: Add Node | Drag: Move | Shift+Drag: Connect | Click Edge: Toggle Sign | Right-Click: Delete'
+                : 'Click node to cycle value (0->1->2)'}
             </div>
           </div>
 
@@ -104,10 +122,32 @@ function App() {
             onAssignmentChange={setAssignment}
             mode={mode}
           />
+          {/* Validation Details Panel (New) */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+            <h3 className="font-semibold text-slate-800 mb-2">Validation Status</h3>
+            <div className="flex gap-4 text-sm">
+              <div className={`flex items-center gap-1 ${violations === 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <span>Undefended Vertices:</span>
+                <span className="font-bold">{violations}</span>
+              </div>
+              {isSigned && (
+                <div className={`flex items-center gap-1 ${attacks === 0 ? 'text-green-600' : 'text-amber-600'}`}>
+                  <span>Attack Conflicts:</span>
+                  <span className="font-bold">{attacks}</span>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Sidebar */}
         <div className="w-80 flex flex-col gap-6">
+
+          <ProblemTypeSelector
+            isSigned={isSigned} setSigned={setIsSigned}
+            variant={variant} setVariant={setVariant}
+          />
+
           {/* Stats Panel */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
             <h2 className="text-lg font-semibold mb-4 border-b border-slate-100 pb-2">Problem Stats</h2>
@@ -137,6 +177,7 @@ function App() {
           <div className="mb-6">
             <SolverPanel
               graph={graph}
+              variant={isSigned ? variant : undefined}
               onSolutionFound={(newAssignment) => {
                 setAssignment(newAssignment);
               }}

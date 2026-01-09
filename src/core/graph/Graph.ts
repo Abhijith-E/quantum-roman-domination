@@ -8,6 +8,7 @@ export interface Vertex {
 export interface Edge {
     source: number; // vertex id
     target: number; // vertex id
+    sign: 1 | -1;   // +1 = positive (friend), -1 = negative (enemy)
 }
 
 export type RDFValue = 0 | 1 | 2;
@@ -29,20 +30,69 @@ export class Graph {
         this.adjacency.set(id, []);
     }
 
-    addEdge(source: number, target: number): void {
+    addEdge(source: number, target: number, sign: 1 | -1 = 1): void {
         if (!this.vertices.has(source) || !this.vertices.has(target)) return;
         if (source === target) return; // No loops
 
         // Check if edge already exists
-        const exists = this.edges.some(e =>
+        const exists = this.edges.find(e =>
             (e.source === source && e.target === target) ||
             (e.source === target && e.target === source)
         );
-        if (exists) return;
+        if (exists) {
+            // Update existing sign if added again? Or just return?
+            // Let's update sign if explicitly called again
+            exists.sign = sign;
+            return;
+        }
 
-        this.edges.push({ source, target });
+        this.edges.push({ source, target, sign });
         this.adjacency.get(source)?.push(target);
         this.adjacency.get(target)?.push(source);
+    }
+
+    getEdge(u: number, v: number): Edge | undefined {
+        return this.edges.find(e =>
+            (e.source === u && e.target === v) ||
+            (e.source === v && e.target === u)
+        );
+    }
+
+    toggleEdgeSign(u: number, v: number): void {
+        const edge = this.getEdge(u, v);
+        if (edge) {
+            edge.sign = (edge.sign === 1 ? -1 : 1);
+        }
+    }
+
+    removeVertex(id: number): void {
+        this.vertices.delete(id);
+        this.adjacency.delete(id);
+
+        // Remove connected edges
+        this.edges = this.edges.filter(e => e.source !== id && e.target !== id);
+
+        // Remove from neighbor lists
+        this.adjacency.forEach((neighbors, vId) => {
+            this.adjacency.set(vId, neighbors.filter(n => n !== id));
+        });
+    }
+
+    removeEdge(u: number, v: number): void {
+        this.edges = this.edges.filter(e =>
+            !((e.source === u && e.target === v) || (e.source === v && e.target === u))
+        );
+
+        // Update adjacency
+        const uNeighbors = this.adjacency.get(u);
+        if (uNeighbors) {
+            this.adjacency.set(u, uNeighbors.filter(n => n !== v));
+        }
+
+        const vNeighbors = this.adjacency.get(v);
+        if (vNeighbors) {
+            this.adjacency.set(v, vNeighbors.filter(n => n !== u));
+        }
     }
 
     getNeighbors(id: number): number[] {

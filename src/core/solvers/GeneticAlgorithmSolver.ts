@@ -1,96 +1,73 @@
 import { Graph } from '../graph/Graph';
 import type { RDFValue } from '../graph/Graph';
-import { RDFProblem } from '../graph/RDF';
+import { RDFProblem, SRDFVariant } from '../graph/RDF';
 import type { Solver, SolverResult } from './Solver';
 
 export class GeneticAlgorithmSolver implements Solver {
     name = "Genetic Algorithm";
-    populationSize = 100;
-    generations = 200;
-    mutationRate = 0.05;
+    popSize = 50;
+    generations = 100;
+    mutationRate = 0.1;
 
-    async solve(graph: Graph): Promise<SolverResult> {
+    async solve(graph: Graph, variant: SRDFVariant = SRDFVariant.C_Weighted): Promise<SolverResult> {
         const startTime = performance.now();
-        const problem = new RDFProblem(graph);
-
-        const vertices = Array.from(graph.vertices.keys());
+        const problem = new RDFProblem(graph, variant);
 
         let population: Map<number, RDFValue>[] = [];
-        for (let i = 0; i < this.populationSize; i++) {
-            const gene = new Map<number, RDFValue>();
-            for (const v of vertices) {
-                gene.set(v, Math.floor(Math.random() * 3) as RDFValue);
-            }
-            population.push(gene);
+        const vertices = Array.from(graph.vertices.keys());
+
+        // Init population
+        for (let i = 0; i < this.popSize; i++) {
+            const sol = new Map<number, RDFValue>();
+            for (const v of vertices) sol.set(v, Math.floor(Math.random() * 3) as RDFValue);
+            population.push(sol);
         }
 
-        let bestSolution: Map<number, RDFValue> = population[0];
-        let bestFitness = -Infinity;
+        for (let g = 0; g < this.generations; g++) {
+            // Sort by fitness (cost)
+            population.sort((a, b) => problem.calculateTotalCost(a, 20) - problem.calculateTotalCost(b, 20));
 
-        for (let gen = 0; gen < this.generations; gen++) {
-            const fitnessScale = population.map(startMap => {
-                const cost = problem.calculateTotalCost(startMap, 20);
-                return {
-                    gene: startMap,
-                    fitness: 1 / (1 + cost),
-                    cost
-                };
-            });
+            // Elitism: keep top 20%
+            const nextPop = population.slice(0, Math.floor(this.popSize * 0.2));
 
-            for (const ind of fitnessScale) {
-                if (ind.fitness > bestFitness) {
-                    bestFitness = ind.fitness;
-                    bestSolution = new Map(ind.gene);
+            while (nextPop.length < this.popSize) {
+                // Select parents
+                const p1 = population[Math.floor(Math.random() * (this.popSize / 2))];
+                const p2 = population[Math.floor(Math.random() * (this.popSize / 2))];
+
+                // Crossover
+                const child = new Map<number, RDFValue>();
+                const crossoverPoint = Math.floor(Math.random() * vertices.length);
+
+                for (let i = 0; i < vertices.length; i++) {
+                    const v = vertices[i];
+                    if (i < crossoverPoint) child.set(v, p1.get(v)!);
+                    else child.set(v, p2.get(v)!);
                 }
+
+                // Mutation
+                if (Math.random() < this.mutationRate) {
+                    const idx = Math.floor(Math.random() * vertices.length);
+                    const v = vertices[idx];
+                    child.set(v, Math.floor(Math.random() * 3) as RDFValue);
+                }
+
+                nextPop.push(child);
             }
-
-            const newPopulation: Map<number, RDFValue>[] = [];
-            while (newPopulation.length < this.populationSize) {
-                const parent1 = this.tournamentSelect(fitnessScale);
-                const parent2 = this.tournamentSelect(fitnessScale);
-
-                const child = this.crossover(parent1.gene, parent2.gene, vertices);
-
-                this.mutate(child, vertices);
-
-                newPopulation.push(child);
-            }
-            population = newPopulation;
+            population = nextPop;
         }
+
+        // Return best
+        population.sort((a, b) => problem.calculateTotalCost(a, 20) - problem.calculateTotalCost(b, 20));
+        const best = population[0];
 
         const endTime = performance.now();
         return {
-            assignment: bestSolution,
-            weight: problem.calculateWeight(bestSolution),
-            isValid: problem.isValid(bestSolution),
+            assignment: best,
+            weight: problem.calculateWeight(best),
+            isValid: problem.isValid(best),
             executionTimeMs: endTime - startTime,
             iterations: this.generations
         };
-    }
-
-    private tournamentSelect(population: { gene: Map<number, RDFValue>, fitness: number }[]) {
-        const k = 5;
-        let best = population[Math.floor(Math.random() * population.length)];
-        for (let i = 0; i < k - 1; i++) {
-            const cand = population[Math.floor(Math.random() * population.length)];
-            if (cand.fitness > best.fitness) best = cand;
-        }
-        return best;
-    }
-
-    private crossover(p1: Map<number, RDFValue>, p2: Map<number, RDFValue>, vertices: number[]) {
-        const child = new Map<number, RDFValue>();
-        for (const v of vertices) {
-            child.set(v, Math.random() < 0.5 ? p1.get(v)! : p2.get(v)!);
-        }
-        return child;
-    }
-
-    private mutate(gene: Map<number, RDFValue>, vertices: number[]) {
-        for (const v of vertices) {
-            if (Math.random() < this.mutationRate) {
-                gene.set(v, Math.floor(Math.random() * 3) as RDFValue);
-            }
-        }
     }
 }

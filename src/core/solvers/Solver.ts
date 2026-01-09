@@ -1,5 +1,6 @@
 import { Graph } from '../graph/Graph';
 import type { RDFValue } from '../graph/Graph';
+import { SRDFVariant } from '../graph/RDF';
 
 export interface SolverResult {
     assignment: Map<number, RDFValue>;
@@ -10,6 +11,6 @@ export interface SolverResult {
 }
 
 export interface Solver {
-    solve(graph: Graph): Promise<SolverResult>;
+    solve(graph: Graph, variant?: SRDFVariant): Promise<SolverResult>;
     name: string;
 }
