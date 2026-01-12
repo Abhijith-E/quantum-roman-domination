@@ -2,7 +2,8 @@ import os
 import time
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from qsolver import run_vqe_on_ibm
+from flask_cors import CORS
+from qsolver import run_vqe_on_ibm, check_connection
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -10,6 +11,11 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({"status": "ok", "message": "Quantum Bridge Active"})
+
+@app.route('/status', methods=['GET'])
+def get_status():
+    result = check_connection()
+    return jsonify(result)
 
 @app.route('/run-ibm', methods=['POST'])
 def run_ibm():

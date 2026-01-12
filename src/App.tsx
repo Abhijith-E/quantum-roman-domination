@@ -2,23 +2,34 @@ import { useState, useMemo } from 'react';
 import { Graph } from './core/graph/Graph';
 import type { RDFValue } from './core/graph/Graph';
 import { RDFProblem, SRDFVariant } from './core/graph/RDF';
-import { GraphCanvas } from './components/GraphCanvas/GraphCanvas';
-import { SolverPanel } from './components/Controls/SolverPanel';
-import { ProblemTypeSelector } from './components/Controls/ProblemTypeSelector';
+
+// Layout Imports
+import { Sidebar } from './components/Layout/Sidebar';
+import { Header } from './components/Layout/Header';
+
+// Views
+import { DashboardView } from './components/Views/DashboardView';
+import { HistoryView } from './components/Views/HistoryView';
+import { SettingsView } from './components/Views/SettingsView';
+
+// Hooks
+import { useHistory } from './hooks/useHistory';
 
 function App() {
   const [graph] = useState(() => new Graph());
-  const [, setVersion] = useState(0); // To trigger re-renders on graph mutations
+  const [, setVersion] = useState(0);
   const [assignment, setAssignment] = useState<Map<number, RDFValue>>(new Map());
   const [mode, setMode] = useState<'edit' | 'assign'>('edit');
 
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [isSigned, setIsSigned] = useState(false);
   const [variant, setVariant] = useState<SRDFVariant>(SRDFVariant.C_Weighted);
 
+  // Hooks
+  const { history, saveToHistory, clearHistory } = useHistory();
+
+  // Problem Logic
   const problem = useMemo(() => {
-    // If not signed, use PositiveOnly to mimic standard RDF where all edges are 'friendly'
-    // (Assuming user hasn't created negative edges, but even if they did, standard RDF usually ignores sign? 
-    //  Actually standard RDF on signed graph is undefined. We treat all edges as positive.)
     return new RDFProblem(graph, isSigned ? variant : SRDFVariant.A_PositiveOnly);
   }, [graph, isSigned, variant]);
 
@@ -38,7 +49,6 @@ function App() {
     if (type === 'P5') newGraph = Graph.createPath(5);
     else if (type === 'C6') {
       newGraph = new Graph();
-      // C6 logic
       const r = 150;
       for (let i = 0; i < 6; i++) {
         const angle = (i / 6) * 2 * Math.PI;
@@ -48,7 +58,6 @@ function App() {
       newGraph.addEdge(5, 0);
     }
     else {
-      // Grid 3x3
       newGraph = new Graph();
       for (let r = 0; r < 3; r++) {
         for (let c = 0; c < 3; c++) {
@@ -59,16 +68,9 @@ function App() {
         }
       }
     }
-
-    // Copy to our state graph (mutating the existing instance or replacing it?)
-    // Since our graph state is a const reference, we must mutate or use a new one.
-    // Better to just replace the properties of the existing one or update the state if we didn't use `[graph] = useState(() => new Graph())`.
-    // Actually, since I used a memoized instance, I should probably copy the data over.
-
     graph.vertices = newGraph.vertices;
     graph.edges = newGraph.edges;
     graph.adjacency = newGraph.adjacency;
-
     setAssignment(new Map());
     setVersion(v => v + 1);
   };
@@ -76,132 +78,68 @@ function App() {
   const isValid = problem.isValid(assignment);
   const weight = problem.calculateWeight(assignment);
   const violations = problem.getViolations(assignment).length;
-  // We can add attack checks here if we want to show them purely for info
-  // Even if !isSigned, user might want to see? No, only valid for Signed.
-  // We don't have getAttackConflicts exposed yet in the interface used here? 
-  // It is there in RDFProblem class.
-  // Note: getAttackConflicts returns Edge[].
   const attacks = isSigned ? problem.getAttackConflicts(assignment).length : 0;
 
+  // Intercept solution found to save to history
+  const handleSolutionFound = (newAssignment: Map<number, RDFValue>, finalWeight: number) => {
+    setAssignment(newAssignment);
+    // Auto-save to history
+    saveToHistory(
+      graph,
+      newAssignment,
+      isSigned ? variant : 'Classic',
+      finalWeight,
+      problem.isValid(newAssignment)
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 p-8 font-sans text-slate-900">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-800">Quantum-Inspired RDF Solver</h1>
-        <p className="text-slate-600">Roman Dominating Function Problem Visualization</p>
-      </header>
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
 
-      <div className="flex gap-6 items-start">
-        {/* Main Canvas Area */}
-        <div className="flex-1 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-          <div className="mb-4 flex justify-between items-center">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setMode('edit')}
-                className={`px-4 py-2 rounded-md font-medium transition-colors ${mode === 'edit' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-              >
-                Edit Graph
-              </button>
-              <button
-                onClick={() => setMode('assign')}
-                className={`px-4 py-2 rounded-md font-medium transition-colors ${mode === 'assign' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-              >
-                Assign Values
-              </button>
-            </div>
-            <div className="text-sm text-slate-500">
-              {mode === 'edit'
-                ? 'Click: Add Node | Drag: Move | Shift+Drag: Connect | Click Edge: Toggle Sign | Right-Click: Delete'
-                : 'Click node to cycle value (0->1->2)'}
-            </div>
-          </div>
+      {/* 1. Sidebar */}
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
 
-          <GraphCanvas
-            graph={graph}
-            assignment={assignment}
-            onGraphChange={handleGraphChange}
-            onAssignmentChange={setAssignment}
-            mode={mode}
-          />
-          {/* Validation Details Panel (New) */}
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-            <h3 className="font-semibold text-slate-800 mb-2">Validation Status</h3>
-            <div className="flex gap-4 text-sm">
-              <div className={`flex items-center gap-1 ${violations === 0 ? 'text-green-600' : 'text-red-600'}`}>
-                <span>Undefended Vertices:</span>
-                <span className="font-bold">{violations}</span>
-              </div>
-              {isSigned && (
-                <div className={`flex items-center gap-1 ${attacks === 0 ? 'text-green-600' : 'text-amber-600'}`}>
-                  <span>Attack Conflicts:</span>
-                  <span className="font-bold">{attacks}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* 2. Main Area */}
+      <main className="flex-1 flex flex-col h-full ml-64 relative z-0">
+        <Header title={activeTab === 'dashboard' ? 'Solver Dashboard' : (activeTab.charAt(0).toUpperCase() + activeTab.slice(1))} />
 
-        {/* Sidebar */}
-        <div className="w-80 flex flex-col gap-6">
+        {/* Scrollable Workspace */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-6">
 
-          <ProblemTypeSelector
-            isSigned={isSigned} setSigned={setIsSigned}
-            variant={variant} setVariant={setVariant}
-          />
-
-          {/* Stats Panel */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-lg font-semibold mb-4 border-b border-slate-100 pb-2">Problem Stats</h2>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Vertices</span>
-                <span className="font-mono font-bold">{graph.vertices.size}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Edges</span>
-                <span className="font-mono font-bold">{graph.edges.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Current Weight</span>
-                <span className="font-mono font-bold text-lg text-blue-600">{weight}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Valid RDF?</span>
-                <span className={`font-bold px-2 py-0.5 rounded text-sm ${isValid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {isValid ? 'YES' : 'NO'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Controls Panel */}
-          <div className="mb-6">
-            <SolverPanel
+          {/* VIEW ROUTER */}
+          {activeTab === 'dashboard' && (
+            <DashboardView
               graph={graph}
-              variant={isSigned ? variant : undefined}
-              onSolutionFound={(newAssignment) => {
-                setAssignment(newAssignment);
-              }}
+              assignment={assignment}
+              setAssignment={setAssignment}
+              mode={mode}
+              setMode={setMode}
+              isSigned={isSigned}
+              setIsSigned={setIsSigned}
+              variant={variant}
+              setVariant={setVariant}
+              onGraphChange={handleGraphChange}
+              onClear={handleClear}
+              onLoadTemplate={handleLoadTemplate}
+              onSolutionFound={handleSolutionFound}
+              problem={problem}
+              weight={weight}
+              violations={violations}
+              attacks={attacks}
+              isValid={isValid}
             />
-          </div>
+          )}
 
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-lg font-semibold mb-4 border-b border-slate-100 pb-2">Actions</h2>
-            <div className="space-y-2">
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Templates</h3>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => handleLoadTemplate('P5')} className="px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded">Path P5</button>
-                <button onClick={() => handleLoadTemplate('C6')} className="px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded">Cycle C6</button>
-                <button onClick={() => handleLoadTemplate('Grid3x3')} className="px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded">Grid 3x3</button>
-              </div>
+          {activeTab === 'history' && (
+            <HistoryView history={history} onClear={clearHistory} />
+          )}
 
-              <div className="h-4"></div>
-              <button onClick={handleClear} className="w-full px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded hover:bg-red-100 transition-colors">
-                Clear Graph
-              </button>
-            </div>
-          </div>
+          {activeTab === 'settings' && (
+            <SettingsView />
+          )}
+
         </div>
-      </div>
+      </main>
     </div>
   );
 }

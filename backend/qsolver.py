@@ -45,6 +45,19 @@ def build_hamiltonian(vertices, edges, variant):
     # Let's assume we want to just Run a circuit and Sample it.
     pass
 
+def check_connection():
+    try:
+        service = QiskitRuntimeService()
+        # Just getting the service object confirms credentials exist and format is valid.
+        # To strictly check network/auth validity, we can list backends or get account info.
+        # This is a lightweight check.
+        if service.active_account():
+            return {"status": "connected", "msg": "Online"}
+        else:
+             return {"status": "error", "msg": "No Active Account"}
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
+
 def run_vqe_on_ibm(api_token, graph_data, variant):
     # Initialize Service
     service = None
