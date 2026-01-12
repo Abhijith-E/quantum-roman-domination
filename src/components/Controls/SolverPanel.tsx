@@ -18,45 +18,93 @@ interface SolverPanelProps {
 export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolutionFound }) => {
     const [isRunning, setIsRunning] = useState(false);
     const [selectedAlgo, setSelectedAlgo] = useState<string>('Greedy');
-    const [lastStats, setLastStats] = useState<{ time: number, weight: number, algo: string } | null>(null);
+    const [lastStats, setLastStats] = useState<{ time: number, weight: number, algo: string, jobId?: string, backend?: string } | null>(null);
+    // Placeholder for IBM Quantum API Token - User will replace this with their actual key
+    const IBM_API_TOKEN = "REPLACE_WITH_YOUR_IBM_QUANTUM_API_TOKEN";
 
     const algorithms: Record<string, () => Solver> = {
         'Greedy': () => new GreedySolver(),
         'Simulated Annealing': () => new SimulatedAnnealingSolver(),
         'Genetic Algorithm': () => new GeneticAlgorithmSolver(),
-        'Quantum VQE (max 10 nodes)': () => new VQESolver(),
+        'Quantum VQE (Local Sim)': () => new VQESolver(),
         'Brute Force (max 12 nodes)': () => new BruteForceSolver(),
     };
 
     const handleRun = async () => {
-        if (selectedAlgo.startsWith('Brute') && graph.vertices.size > 12) {
-            alert("Graph too large for Brute Force (max 12 nodes)");
-            return;
-        }
-        if (selectedAlgo.startsWith('Quantum') && graph.vertices.size > 10) {
-            alert("Graph too large for Quantum Simulator (max 10 nodes)");
-            return;
-        }
-
         setIsRunning(true);
-        // Small delay to allow UI to update to "Running..."
+        setLastStats(null);
         await new Promise(r => setTimeout(r, 100));
 
         try {
-            const solverFactory = algorithms[selectedAlgo];
-            const solver = solverFactory();
-            // Pass the selected variant to the solver
-            const result = await solver.solve(graph, variant);
+            if (selectedAlgo === 'Real IBM Quantum') {
+                // Measure execution time including network/queue overhead
+                const startTime = performance.now();
 
-            onSolutionFound(result.assignment, result.weight, result.executionTimeMs);
-            setLastStats({
-                time: result.executionTimeMs,
-                weight: result.weight,
-                algo: selectedAlgo
-            });
-        } catch (e) {
+                // Call Python Backend
+                const response = await fetch('http://127.0.0.1:5000/run-ibm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        apiToken: IBM_API_TOKEN,
+                        graph: {
+                            vertices: Array.from(graph.vertices.values()),
+                            edges: graph.edges
+                        },
+                        variant: variant
+                    })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || "Backend request failed");
+                }
+
+                const data = await response.json();
+
+                const endTime = performance.now();
+                const totalTime = endTime - startTime;
+
+                // Convert object assignment back to Map
+                const newAssignment = new Map<number, RDFValue>();
+                for (const [key, val] of Object.entries(data.assignment)) {
+                    newAssignment.set(Number(key), Number(val) as RDFValue);
+                }
+
+                // Since backend just returns assignment, we calc weight here
+                let w = 0;
+                newAssignment.forEach(v => w += v);
+
+                onSolutionFound(newAssignment, w, totalTime);
+                setLastStats({
+                    time: totalTime,
+                    weight: w,
+                    algo: `IBM Quantum (${data.backend})`,
+                    jobId: data.jobId,
+                    backend: data.backend
+                });
+
+            } else {
+                if (selectedAlgo.startsWith('Brute') && graph.vertices.size > 12) {
+                    throw new Error("Graph too large for Brute Force (max 12 nodes)");
+                }
+                if (selectedAlgo.startsWith('Quantum VQE (Local') && graph.vertices.size > 10) {
+                    throw new Error("Graph too large for Quantum Simulator (max 10 nodes)");
+                }
+
+                const solverFactory = algorithms[selectedAlgo];
+                const solver = solverFactory();
+                const result = await solver.solve(graph, variant);
+
+                onSolutionFound(result.assignment, result.weight, result.executionTimeMs);
+                setLastStats({
+                    time: result.executionTimeMs,
+                    weight: result.weight,
+                    algo: selectedAlgo
+                });
+            }
+        } catch (e: any) {
             console.error(e);
-            alert("Error running algorithm: " + e);
+            alert("Error: " + (e.message || e));
         } finally {
             setIsRunning(false);
         }
@@ -78,8 +126,15 @@ export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolu
                         {Object.keys(algorithms).map(algo => (
                             <option key={algo} value={algo}>{algo}</option>
                         ))}
+                        <option value="Real IBM Quantum">Real IBM Quantum (Hardware)</option>
                     </select>
                 </div>
+
+                {selectedAlgo.startsWith('Quantum VQE (Local') && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded text-xs text-slate-600">
+                        Running on Local Simulator. Max 10 Nodes.
+                    </div>
+                )}
 
                 <button
                     onClick={handleRun}
@@ -87,7 +142,7 @@ export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolu
                     className={`w-full py-2 px-4 rounded-md font-medium text-white transition-colors ${isRunning ? 'bg-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
                         }`}
                 >
-                    {isRunning ? 'Running...' : 'Run Optimization'}
+                    {isRunning ? 'Processing...' : 'Run Optimization'}
                 </button>
 
                 {lastStats && (
@@ -95,11 +150,20 @@ export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolu
                         <p className="font-semibold text-slate-700 mb-1">Last Run Result:</p>
                         <div className="grid grid-cols-2 gap-x-2 gap-y-1">
                             <span className="text-slate-500">Algorithm:</span>
-                            <span>{lastStats.algo}</span>
+                            <span className="break-words text-xs">{lastStats.algo}</span>
+
                             <span className="text-slate-500">Weight:</span>
                             <span className="font-bold text-blue-600">{lastStats.weight}</span>
+
                             <span className="text-slate-500">Time:</span>
-                            <span>{lastStats.time.toFixed(2)}ms</span>
+                            <span>{lastStats.time.toFixed(0)}ms</span>
+
+                            {lastStats.jobId && (
+                                <>
+                                    <span className="text-slate-500">Job ID:</span>
+                                    <span className="font-mono text-xs">{lastStats.jobId.slice(0, 8)}...</span>
+                                </>
+                            )}
                         </div>
                     </div>
                 )}

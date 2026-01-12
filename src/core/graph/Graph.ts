@@ -103,20 +103,7 @@ export class Graph {
         return this.vertices.get(id);
     }
 
-    removeVertex(id: number): void {
-        if (!this.vertices.has(id)) return;
 
-        // Remove edges connected to this vertex
-        this.edges = this.edges.filter(e => e.source !== id && e.target !== id);
-
-        // Update adjacency lists
-        this.adjacency.delete(id);
-        this.adjacency.forEach((neighbors, vId) => {
-            this.adjacency.set(vId, neighbors.filter(n => n !== id));
-        });
-
-        this.vertices.delete(id);
-    }
 
     clear(): void {
         this.vertices.clear();

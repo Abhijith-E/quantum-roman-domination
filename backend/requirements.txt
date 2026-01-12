@@ -1,0 +1,6 @@
+flask
+flask-cors
+qiskit>=1.0.0
+qiskit-ibm-runtime>=0.20.0
+numpy
+python-dotenv
