@@ -3,12 +3,14 @@ export interface Vertex {
     label: string;
     x: number;
     y: number;
+    metadata?: Record<string, any>; // For rich attributes (Type, Role, Priority)
 }
 
 export interface Edge {
     source: number; // vertex id
     target: number; // vertex id
     sign: 1 | -1;   // +1 = positive (friend), -1 = negative (enemy)
+    metadata?: Record<string, any>; // For rich attributes (Relation, Weight)
 }
 
 export type RDFValue = 0 | 1 | 2;
@@ -24,13 +26,13 @@ export class Graph {
         this.adjacency = new Map();
     }
 
-    addVertex(id: number, label: string, x: number = 0, y: number = 0): void {
+    addVertex(id: number, label: string, x: number = 0, y: number = 0, metadata?: Record<string, any>): void {
         if (this.vertices.has(id)) return;
-        this.vertices.set(id, { id, label, x, y });
+        this.vertices.set(id, { id, label, x, y, metadata });
         this.adjacency.set(id, []);
     }
 
-    addEdge(source: number, target: number, sign: 1 | -1 = 1): void {
+    addEdge(source: number, target: number, sign: 1 | -1 = 1, metadata?: Record<string, any>): void {
         if (!this.vertices.has(source) || !this.vertices.has(target)) return;
         if (source === target) return; // No loops
 

@@ -1,3 +1,6 @@
+import { RamseyChecker } from '../../core/graph/Ramsey';
+import type { RamseyResult } from '../../core/graph/Ramsey';
+import { useState } from 'react';
 import React from 'react';
 import { Plus, Edit3, Trash2 } from 'lucide-react';
 import { Graph } from '../../core/graph/Graph';
@@ -19,7 +22,7 @@ interface DashboardViewProps {
     setVariant: (v: SRDFVariant) => void;
     onGraphChange: () => void;
     onClear: () => void;
-    onLoadTemplate: (t: 'P5' | 'C6' | 'Grid3x3') => void;
+    onLoadTemplate: (t: 'P5' | 'C6' | 'Grid3x3' | 'K14' | 'K20' | 'K50' | 'K100' | 'Geo60') => void;
     // Callback for when solver finds solution (to trigger parent side effects like history save)
     onSolutionFound: (assignment: Map<number, RDFValue>, weight: number, time: number) => void;
     problem: RDFProblem;
@@ -37,6 +40,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     weight, violations, attacks, isValid
 }) => {
 
+    // Ramsey State
+    const [analysisMode, setAnalysisMode] = useState<'roman' | 'ramsey'>('roman');
+    const [ramseyM, setRamseyM] = useState(3);
+    const [ramseyN, setRamseyN] = useState(3);
+    const [ramseyResult, setRamseyResult] = useState<RamseyResult | null>(null);
+
+    const handleRamseyCheck = () => {
+        const result = RamseyChecker.check(graph, ramseyM, ramseyN);
+        setRamseyResult(result);
+    };
+
+    const handleClearAll = () => {
+        onClear();
+        setRamseyResult(null);
+    }
+
     return (
         <div className="grid grid-cols-12 gap-6 max-w-7xl mx-auto animate-fade-in-up">
 
@@ -44,8 +63,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
 
                 {/* Toolbar */}
-                <div className="flex items-center justify-between bg-white p-2 rounded-xl shadow-sm border border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-y-2 bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-200">
                     <div className="flex gap-2">
+                        {/* Mode Switcher */}
+                        <div className="flex bg-slate-100 p-1 rounded-lg mr-4">
+                            <button
+                                onClick={() => setAnalysisMode('roman')}
+                                className={`px-3 py-1 text-xs font-medium rounded transition-all ${analysisMode === 'roman' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}
+                            >
+                                Roman Dom.
+                            </button>
+                            <button
+                                onClick={() => setAnalysisMode('ramsey')}
+                                className={`px-3 py-1 text-xs font-medium rounded transition-all ${analysisMode === 'ramsey' ? 'bg-white shadow text-purple-600' : 'text-slate-500'}`}
+                            >
+                                Ramsey #
+                            </button>
+                        </div>
+
                         <button
                             onClick={() => setMode('edit')}
                             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${mode === 'edit' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-100'
@@ -53,42 +88,40 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         >
                             <Plus size={16} /> Edit Structure
                         </button>
-                        <button
-                            onClick={() => setMode('assign')}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${mode === 'assign' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-100'
-                                }`}
-                        >
-                            <Edit3 size={16} /> Assign Values
-                        </button>
+                        {analysisMode === 'roman' && (
+                            <button
+                                onClick={() => setMode('assign')}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${mode === 'assign' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-100'
+                                    }`}
+                            >
+                                <Edit3 size={16} /> Assign Values
+                            </button>
+                        )}
                     </div>
 
-                    <div className="flex items-center gap-2 pr-2">
+                    <div className="flex items-center gap-2">
                         <span className="text-xs font-medium text-slate-400 uppercase tracking-wider mr-2">Templates:</span>
-                        {['P5', 'C6', 'Grid3x3'].map(t => (
+                        {['P5', 'C6', 'Grid3x3', 'K14', 'K20', 'K50', 'K100', 'Geo60'].map(t => (
                             <button key={t} onClick={() => onLoadTemplate(t as any)} className="px-3 py-1 text-xs bg-slate-50 border border-slate-200 rounded hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors">
                                 {t}
                             </button>
                         ))}
                         <div className="w-px h-4 bg-slate-200 mx-2"></div>
-                        <button onClick={onClear} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Clear All">
+                        <button onClick={handleClearAll} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Clear All">
                             <Trash2 size={16} />
                         </button>
                     </div>
                 </div>
 
                 {/* Canvas Card */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative group">
-                    <div className="absolute top-4 right-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur text-xs px-2 py-1 rounded border border-slate-200 shadow-sm pointer-events-none">
-                        {mode === 'edit'
-                            ? 'Click: Add Node | Drag: Move | Shift+Drag: Connect | Click Edge: Toggle Sign | Right-Click: Delete'
-                            : 'Click node to cycle value (0 → 1 → 2)'}
-                    </div>
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-auto relative group">
                     <GraphCanvas
                         graph={graph}
                         assignment={assignment}
-                        onGraphChange={onGraphChange}
+                        onGraphChange={() => { onGraphChange(); setRamseyResult(null); }}
                         onAssignmentChange={setAssignment}
                         mode={mode}
+                        highlightedVertices={analysisMode === 'ramsey' && ramseyResult?.clique ? ramseyResult.clique : []}
                     />
                 </div>
 
@@ -96,46 +129,151 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div className="grid grid-cols-4 gap-4">
                     <StatusCard label="Vertices" value={graph.vertices.size} />
                     <StatusCard label="Edges" value={graph.edges.length} />
-                    <StatusCard label="Current Weight" value={weight} highlight />
-                    <StatusCard label="Validation" value={isValid ? "VALID" : "INVALID"} status={isValid ? 'success' : 'error'} />
+                    {analysisMode === 'roman' ? (
+                        <>
+                            <StatusCard label="Current Weight" value={weight} highlight />
+                            <StatusCard label="Validation" value={isValid ? "VALID" : "INVALID"} status={isValid ? 'success' : 'error'} />
+                        </>
+                    ) : (
+                        <StatusCard label="Ramsey Status" value={ramseyResult ? (ramseyResult.found ? "CLIQUE FOUND" : "None Found") : "Ready"} status={ramseyResult?.found ? 'success' : undefined} />
+                    )}
                 </div>
             </div>
 
             {/* RIGHT COLUMN: Controls & Analysis */}
             <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
 
-                {/* 1. Configuration */}
-                <ProblemTypeSelector
-                    isSigned={isSigned} setSigned={setIsSigned}
-                    variant={variant} setVariant={setVariant}
-                />
+                {analysisMode === 'roman' ? (
+                    <>
+                        {/* 1. Configuration */}
+                        <ProblemTypeSelector
+                            isSigned={isSigned} setSigned={setIsSigned}
+                            variant={variant} setVariant={setVariant}
+                        />
 
-                {/* 2. Validation Constraints Details */}
-                {(violations > 0 || (isSigned && attacks > 0)) && (
-                    <div
-                        className="bg-red-50 border border-red-100 rounded-xl p-4 animate-fade-in-up"
-                    >
-                        <h4 className="text-red-800 font-semibold mb-2 flex items-center gap-2">
-                            ⚠️ Constraints Violated
-                        </h4>
-                        <ul className="space-y-1 text-sm text-red-700">
-                            {violations > 0 && <li>• {violations} vertices are not properly defended.</li>}
-                            {isSigned && attacks > 0 && <li>• {attacks} negative edge conflicts detected.</li>}
-                        </ul>
+                        {/* 2. Validation Constraints Details */}
+                        {(violations > 0 || (isSigned && attacks > 0)) && (
+                            <div
+                                className="bg-red-50 border border-red-100 rounded-xl p-4 animate-fade-in-up"
+                            >
+                                <h4 className="text-red-800 font-semibold mb-2 flex items-center gap-2">
+                                    ⚠️ Constraints Violated
+                                </h4>
+                                <ul className="space-y-1 text-sm text-red-700">
+                                    {violations > 0 && <li>• {violations} vertices are not properly defended.</li>}
+                                    {isSigned && attacks > 0 && <li>• {attacks} negative edge conflicts detected.</li>}
+                                </ul>
+                            </div>
+                        )}
+
+                        {/* 3. Algorithms Runner */}
+                        <SolverPanel
+                            graph={graph}
+                            variant={isSigned ? variant : undefined}
+                            onSolutionFound={onSolutionFound}
+                        />
+                    </>
+                ) : (
+                    // RAMSEY MODE CONTROLS
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
+                        <h2 className="text-lg font-semibold mb-4 border-b border-slate-100 pb-2 text-purple-700">Ramsey Analysis</h2>
+                        <p className="text-xs text-slate-500 mb-4">
+                            Check if the graph contains a Clique of size <b>m</b> in Positive Edges OR a Clique of size <b>n</b> in Negative Edges.
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Target Positive (m)</label>
+                                <input
+                                    type="number"
+                                    min="2"
+                                    value={ramseyM}
+                                    onChange={(e) => setRamseyM(parseInt(e.target.value))}
+                                    className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-slate-600 mb-1">Target Negative (n)</label>
+                                <input
+                                    type="number"
+                                    min="2"
+                                    value={ramseyN}
+                                    onChange={(e) => setRamseyN(parseInt(e.target.value))}
+                                    className="w-full border border-slate-300 rounded px-2 py-1 text-sm"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-2 mb-4">
+                            <button
+                                onClick={handleRamseyCheck}
+                                className="flex-1 py-2 px-4 rounded-md font-medium text-white bg-purple-600 hover:bg-purple-700 transition-colors"
+                            >
+                                Check Current
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const N = graph.vertices.size;
+                                    // Run Heuristic
+                                    const result = RamseyChecker.findCounterExample(N, ramseyM, ramseyN);
+
+                                    // Apply Edges to Graph
+                                    graph.edges = [];
+                                    graph.adjacency = new Map();
+                                    graph.vertices.forEach(v => graph.adjacency.set(v.id, []));
+
+                                    result.edges.forEach(e => {
+                                        graph.addEdge(e.u, e.v, e.sign);
+                                    });
+
+                                    onGraphChange(); // Trigger redraw
+                                    setRamseyResult(null); // Clear previous check result
+
+                                    // Auto-check the new graph
+                                    setTimeout(handleRamseyCheck, 100);
+                                }}
+                                className="flex-1 py-2 px-4 rounded-md font-medium text-purple-700 bg-purple-100 hover:bg-purple-200 border border-purple-200 transition-colors"
+                                title="Attempt to color edges to AVOID cliques (Prove Lower Bound)"
+                            >
+                                Auto-Color
+                            </button>
+                        </div>
+
+                        {ramseyResult && (
+                            <div className={`p-4 rounded-lg text-sm border ${ramseyResult.found ? 'bg-green-50 border-green-200 text-green-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                                {ramseyResult.found ? (
+                                    <>
+                                        <div className="font-bold flex items-center gap-2">
+                                            ⚠️ Clique Found!
+                                        </div>
+                                        <div className="mt-1">
+                                            Found a <b>{ramseyResult.condition === 'positive' ? 'Positive' : 'Negative'}</b> Clique of size <b>{ramseyResult.size}</b>.
+                                        </div>
+                                        <div className="text-xs mt-2 opacity-75">
+                                            This coloring DOES NOT avoid K_{ramseyM}/K_{ramseyN}.
+                                            <br />(Upper Bound Constraint Met)
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="font-bold text-blue-700">✅ Valid Coloring Found!</div>
+                                        <div className="mt-1 text-xs text-blue-600">
+                                            No positive K_{ramseyM} and no negative K_{ramseyN} exist.
+                                            <br />
+                                            <b>Result:</b> R({ramseyM},{ramseyN}) &gt; {graph.vertices.size}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
-
-                {/* 3. Algorithms Runner */}
-                <SolverPanel
-                    graph={graph}
-                    variant={isSigned ? variant : undefined}
-                    onSolutionFound={onSolutionFound}
-                />
 
             </div>
         </div>
     );
 };
+
 
 const StatusCard = ({ label, value, highlight, status }: { label: string, value: string | number, highlight?: boolean, status?: 'success' | 'error' }) => {
     let valueColor = 'text-slate-900';

@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { Graph } from './core/graph/Graph';
 import type { RDFValue } from './core/graph/Graph';
 import { RDFProblem, SRDFVariant } from './core/graph/RDF';
+import { ComplexGraphGenerator } from './core/graph/ComplexGraphGenerator';
 
 // Layout Imports
 import { Sidebar } from './components/Layout/Sidebar';
@@ -43,7 +44,7 @@ function App() {
     setVersion(v => v + 1);
   };
 
-  const handleLoadTemplate = (type: 'P5' | 'C6' | 'Grid3x3') => {
+  const handleLoadTemplate = (type: 'P5' | 'C6' | 'Grid3x3' | 'K14' | 'K20' | 'K50' | 'K100' | 'Geo60') => {
     graph.clear();
     let newGraph: Graph;
     if (type === 'P5') newGraph = Graph.createPath(5);
@@ -56,6 +57,73 @@ function App() {
         if (i > 0) newGraph.addEdge(i - 1, i);
       }
       newGraph.addEdge(5, 0);
+    }
+    else if (type === 'K14') {
+      newGraph = new Graph();
+      const r = 200;
+      // Add vertices in circle
+      for (let i = 0; i < 14; i++) {
+        const angle = (i / 14) * 2 * Math.PI;
+        newGraph.addVertex(i, `v${i}`, 400 + r * Math.cos(angle), 300 + r * Math.sin(angle));
+      }
+      // Connect all pairs (Complete Graph)
+      for (let i = 0; i < 14; i++) {
+        for (let j = i + 1; j < 14; j++) {
+          newGraph.addEdge(i, j);
+        }
+      }
+    }
+    else if (type === 'K20') {
+      newGraph = new Graph();
+      const r = 220;
+      // Add vertices in circle
+      for (let i = 0; i < 20; i++) {
+        const angle = (i / 20) * 2 * Math.PI;
+        newGraph.addVertex(i, `v${i}`, 400 + r * Math.cos(angle), 300 + r * Math.sin(angle));
+      }
+      // Connect all pairs (Complete Graph)
+      for (let i = 0; i < 20; i++) {
+        for (let j = i + 1; j < 20; j++) {
+          newGraph.addEdge(i, j);
+        }
+      }
+    }
+    else if (type === 'K50') {
+      newGraph = new Graph();
+      const r = 250;
+      for (let i = 0; i < 50; i++) {
+        const angle = (i / 50) * 2 * Math.PI;
+        newGraph.addVertex(i, `v${i}`, 400 + r * Math.cos(angle), 300 + r * Math.sin(angle));
+      }
+      for (let i = 0; i < 50; i++) {
+        for (let j = i + 1; j < 50; j++) {
+          newGraph.addEdge(i, j);
+        }
+      }
+    }
+    else if (type === 'K100') {
+      newGraph = new Graph();
+      const r = 280;
+      for (let i = 0; i < 100; i++) {
+        const angle = (i / 100) * 2 * Math.PI;
+        newGraph.addVertex(i, `v${i}`, 400 + r * Math.cos(angle), 300 + r * Math.sin(angle));
+      }
+      for (let i = 0; i < 100; i++) {
+        for (let j = i + 1; j < 100; j++) {
+          newGraph.addEdge(i, j);
+        }
+      }
+    }
+    else if (type === 'Geo60') {
+      const { graph: g, description, rdfTriples } = ComplexGraphGenerator.generateGeopolitics();
+      newGraph = g;
+      // Ideally we would show the description/RDF to the user.
+      // For now, logging to console as "Output"
+      console.log("=== SCENARIO DESCRIPTION ===");
+      console.log(description);
+      console.log("=== RDF TRIPLES ===");
+      console.log(rdfTriples.join('\n'));
+      // We could also store this in a state if we added a UI modal.
     }
     else {
       newGraph = new Graph();

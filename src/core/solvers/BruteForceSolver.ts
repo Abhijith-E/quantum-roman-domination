@@ -14,8 +14,8 @@ export class BruteForceSolver implements Solver {
         // ... rest of logic uses problem.calculateTotalCost which uses variant
 
 
-        if (graph.vertices.size > 12) {
-            throw new Error("Graph too large for Brute Force (max 12 vertices)");
+        if (graph.vertices.size > 60) {
+            throw new Error("Graph too large for Brute Force (max 60 vertices)");
         }
 
         const vertices = Array.from(graph.vertices.keys());

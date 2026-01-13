@@ -8,6 +8,7 @@ interface GraphCanvasProps {
     onGraphChange: () => void;
     onAssignmentChange: (newAssignment: Map<number, RDFValue>) => void;
     mode: 'edit' | 'assign'; // 'edit' = add/move nodes/edges, 'assign' = change colors
+    highlightedVertices?: number[]; // IDs of vertices to highlight (e.g. for Clique visualization)
 }
 
 export const GraphCanvas: React.FC<GraphCanvasProps> = ({
@@ -15,7 +16,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     assignment,
     onGraphChange,
     onAssignmentChange,
-    mode
+    mode,
+    highlightedVertices = []
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [draggedVertexId, setDraggedVertexId] = useState<number | null>(null);
@@ -93,14 +95,23 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             ctx.beginPath();
             ctx.arc(vertex.x, vertex.y, NODE_RADIUS, 0, 2 * Math.PI);
 
+            // Highlight Halo
+            if (highlightedVertices.includes(vertex.id)) {
+                ctx.beginPath();
+                ctx.arc(vertex.x, vertex.y, NODE_RADIUS + 5, 0, 2 * Math.PI);
+                ctx.fillStyle = 'rgba(234, 179, 8, 0.5)'; // yellow-500, 50% opacity
+                ctx.fill();
+            }
+
             // Fill
             ctx.fillStyle = getVertexColor(val);
             ctx.fill();
 
             // Border
             ctx.lineWidth = 2;
-            ctx.strokeStyle = (hoveredVertexId === vertex.id || edgeStartVertexId === vertex.id)
-                ? SELECTION_COLOR
+            const isHighlighted = highlightedVertices.includes(vertex.id);
+            ctx.strokeStyle = (hoveredVertexId === vertex.id || edgeStartVertexId === vertex.id || isHighlighted)
+                ? (isHighlighted ? '#ca8a04' : SELECTION_COLOR) // darker yellow if highlighted
                 : '#000000';
             ctx.stroke();
 
@@ -121,7 +132,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             ctx.fillText(val.toString(), vertex.x + 15, vertex.y - 15);
         });
 
-    }, [graph, assignment, hoveredVertexId, edgeStartVertexId]);
+    }, [graph, assignment, hoveredVertexId, edgeStartVertexId, highlightedVertices]);
 
     useEffect(() => {
         redraw();
@@ -278,12 +289,20 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         }
     };
 
+    // Dynamic Sizing
+    let maxX = 800;
+    let maxY = 600;
+    graph.vertices.forEach(v => {
+        if (v.x > maxX - 50) maxX = v.x + 100;
+        if (v.y > maxY - 50) maxY = v.y + 100;
+    });
+
     return (
         <canvas
             ref={canvasRef}
-            width={800}
-            height={600}
-            className="border border-slate-200 rounded-lg shadow-sm bg-white cursor-crosshair"
+            width={maxX}
+            height={maxY}
+            className="rounded-lg bg-white cursor-crosshair"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}

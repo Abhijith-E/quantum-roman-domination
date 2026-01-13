@@ -27,7 +27,7 @@ export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolu
         'Simulated Annealing': () => new SimulatedAnnealingSolver(),
         'Genetic Algorithm': () => new GeneticAlgorithmSolver(),
         'Quantum VQE (Local Sim)': () => new VQESolver(),
-        'Brute Force (max 12 nodes)': () => new BruteForceSolver(),
+        'Brute Force (max 60 nodes - WARNING: WILL CRASH)': () => new BruteForceSolver(),
     };
 
     const handleRun = async () => {
@@ -82,10 +82,9 @@ export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolu
                     jobId: data.jobId,
                     backend: data.backend
                 });
-
             } else {
-                if (selectedAlgo.startsWith('Brute') && graph.vertices.size > 12) {
-                    throw new Error("Graph too large for Brute Force (max 12 nodes)");
+                if (selectedAlgo.startsWith('Brute') && graph.vertices.size > 60) {
+                    throw new Error("Graph too large for Brute Force (max 60 nodes)");
                 }
                 if (selectedAlgo.startsWith('Quantum VQE (Local') && graph.vertices.size > 10) {
                     throw new Error("Graph too large for Quantum Simulator (max 10 nodes)");
