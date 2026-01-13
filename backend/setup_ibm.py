@@ -3,7 +3,6 @@
 import ssl
 import warnings
 
-# Suppress warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning) 
 
 try:
@@ -14,13 +13,21 @@ else:
     ssl._create_default_https_context = _create_unverified_https_context
 # ------------------------------------------------
 
+import os
+from dotenv import load_dotenv 
 from qiskit_ibm_runtime import QiskitRuntimeService
 
-API_TOKEN = "IMsvdzlwjGZQH5dgW583yW00kMf_VaPgy_Uv0tKNfH2V"
+# Load environment variables from .env file
+load_dotenv()
 
-INSTANCE_ID = "crn:v1:bluemix:public:quantum-computing:us-east:a/9ad7ad6883074d70955495411e34d6b0:7d9b0e44-3305-4d78-a472-8089d3fea600::"
+# Read secrets safely
+API_TOKEN = os.getenv("IBM_QUANTUM_API_TOKEN")
+INSTANCE_ID = os.getenv("IBM_QUANTUM_INSTANCE_ID")
 
 def setup_account():
+    if not API_TOKEN or not INSTANCE_ID:
+        raise ValueError("❌ API token or Instance ID not found. Check your .env file.")
+
     print("Saving IBM Quantum account...")
 
     QiskitRuntimeService.save_account(
