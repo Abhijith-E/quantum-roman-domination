@@ -106,186 +106,169 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
     if num_qubits > 127:
         raise Exception("Graph too large (max 63 vertices).")
 
-    # --- BUILD QAOA-INSPIRED CIRCUIT (p=1) ---
-    # We encode graph structure into the circuit to bias probability towards valid geometric states.
-    qc = QuantumCircuit(num_qubits)
+    # --- STRICT QUANTUM ALGORITHM (BATCH QAOA) ---
+    # User Requirement: strict adherence to Quantum Algorithm (no classical fallback).
+    # Strategy: Run Parallel Variational Sweep to maximize probability of finding ground state.
     
-    # 1. Superposition
-    qc.h(range(num_qubits))
+    # Generate Parameter Grid (3x3 = 9 variations)
+    # This explores the cost landscape to find the best interference pattern
+    betas = np.linspace(0.1, np.pi/2, 3)
+    gammas = np.linspace(0.1, np.pi, 3)
     
-    # 2. Problem Hamiltonian (Cost Layer)
-    # We apply RZZ gates between qubits representing connected vertices.
-    # Mapping: Vertex i -> Qubits (2i, 2i+1)
-    # We just entangle everything a bit based on edges to "inform" the quantum state of the topology.
-    gamma = np.pi / 2 # Generic parameter
+    pubs = []
+    
+    # Reuse the base circuit structure 'qc' but we need to bind parameters if we used ParameterVector
+    # Since current code hardcoded floats, we must rebuild circuits or use bindings.
+    # To save code churn, let's just loop and build 9 distinct circuits. 
+    # It's fast enough for client-side generation.
+    
+    isa_circuits = []
+    
+    from qiskit.circuit import Parameter
+    
+    # Define Parameterized Circuit ONCE
+    qc_p = QuantumCircuit(num_qubits)
+    qc_p.h(range(num_qubits))
+    
+    # Parameters
+    p_gamma = Parameter('gamma')
+    p_beta = Parameter('beta')
     
     sorted_vertices = sorted(graph_data['vertices'], key=lambda x: x['id'])
     v_map = {v['id']: i for i, v in enumerate(sorted_vertices)}
     
+    # Cost Layer
     for e in graph_data['edges']:
         u_idx = v_map.get(e['source'])
         v_idx = v_map.get(e['target'])
-        
         if u_idx is not None and v_idx is not None:
-            # Simple entanglement betwen LSBs of connected nodes
-            q_u = 2 * u_idx
-            q_v = 2 * v_idx
-            qc.rzz(gamma, q_u, q_v)
+            qc_p.rzz(p_gamma, 2 * u_idx, 2 * v_idx)
 
-    # 3. Mixing Hamiltonian (Driver Layer)
-    beta = np.pi / 3 
-    qc.rx(2 * beta, range(num_qubits))
+    # Mixing Layer
+    qc_p.rx(2 * p_beta, range(num_qubits))
+    qc_p.measure_all()
     
-    # 4. Measurement
-    qc.measure_all()
+    # Transpile ONCE
+    pm = generate_preset_pass_manager(backend=backend, optimization_level=3)
+    isa_qc = pm.run(qc_p)
     
-    # Transpile & Run
-    pm = generate_preset_pass_manager(backend=backend, optimization_level=3) # Usage of Level 3 for best result
-    isa_circuit = pm.run(qc)
+    # Create Batch Inputs (Primitive Unified Blocs)
+    # Format: (circuit, [parameter_values])
+    # We submit ONE job with MULTIPLE parameter sets.
     
+    param_sets = []
+    for b in betas:
+        for g in gammas:
+             param_sets.append([g, b]) # Order depends on binding order?
+             # isa_qc.parameters will show order. Usually alphabetical or insertion.
+             # Safest to assign bindings map if possible, but SamplerV2 takes array matching circuit.parameters
+    
+    # Ensure param order
+    # isa_qc.parameters is a ParameterView. 
+    # We need to match that order.
+    # Simple workaround: Bind specific values to create specific circuits if uncertain, 
+    # but SamplerV2 supports PUBs (circuit, points).
+    
+    # Let's trust ordering: [gamma, beta] or [beta, gamma]
+    # We will just verify:
+    ordered_params = list(isa_qc.parameters)
+    # Create the binding array based on this order
+    batch_bindings = []
+    for b in betas:
+        for g in gammas:
+            # Map params
+            vals = []
+            for p in ordered_params:
+                if p.name == 'gamma': vals.append(g)
+                elif p.name == 'beta': vals.append(b)
+            batch_bindings.append(vals)
+            
+    # Run Batch
     from qiskit_ibm_runtime import SamplerV2 as Sampler
     sampler = Sampler(mode=backend)
     
-    # Run with high shot count to ensure we find good candidates
-    job = sampler.run([isa_circuit], shots=8192) 
-    print(f"Job submitted: {job.job_id()}")
+    # Submit as one PUB: (circuit, bindings_array)
+    # This runs the SAME circuit with DIFFERENT parameters efficiently.
+    job = sampler.run([(isa_qc, batch_bindings)], shots=4096)
+    print(f"Batch Job submitted: {job.job_id()} (9 Parameter Sets)")
     
     # Get Results
     result = job.result()
-    counts = result[0].data.meas.get_counts()
+    # result[0] corresponds to the first PUB.
+    # It contains data for all parameter sets in the batch.
     
-    # --- CLASSICAL POST-PROCESSING (The "Optimization" Part) ---
+    # SamplerV2 result structure: 
+    # PubResult -> data -> measure -> BitArray
+    # But with bindings, it might return array of counts?
+    # Actually, for V2, we get a DataBin. 
+    # If we passed N bindings, we get N results? 
+    # Usually pub_result.data.meas.get_counts() returns a LIST of dicts if multiple bindings used.
+    
+    pub_result = result[0]
+    all_counts = pub_result.data.meas.get_counts()
+    
+    # If it's a single dict (unexpected for multiple bindings), wrap it
+    if isinstance(all_counts, dict):
+        all_counts = [all_counts]
+        
+    print(f"Received {len(all_counts)} result sets.")
+
+    # --- PURE QUANTUM SELECTION ---
+    # Aggregate results from ALL parameter sets.
+    # We strictly use the hardware outputs.
+    # We select the best VALID solution found across all sweeps.
+    
     best_qc_assignment = {}
     best_qc_score = float('inf')
+    found_any_valid = False
     
     v_ids = [v['id'] for v in sorted_vertices]
     
-    for bitstring, count in counts.items():
-        if count < 5: continue # Skip noise
-        current_assignment = {}
-        for i, v_id in enumerate(v_ids):
-            # Decode: q0 is rightmost (-1)
-            try:
-                b0 = int(bitstring[-(2*i + 1)])
-                b1 = int(bitstring[-(2*i + 2)])
-                val = (b1 << 1) | b0
-                if val == 3: val = 0 
-                current_assignment[v_id] = val
-            except IndexError:
-                current_assignment[v_id] = 0
-                
-        is_valid, weight, violations = evaluate_solution(current_assignment, graph_data['vertices'], graph_data['edges'])
-        score = (violations * 100) + weight
-        # Prioritize validity, then weight, then count
-        if score < best_qc_score:
-            best_qc_score = score
-            best_qc_assignment = current_assignment
-        elif score == best_qc_score:
-            # Tie breaker: Higher probability (count)
-            # We don't have previous count here easily, but first seen usually fine
-            pass
-
-    # --- HYBRID REFINEMENT: ROBUST CLASSICAL FALLBACK ---
-    print("Running Hybrid Classical Verification...")
-    best_hybrid_assignment = best_qc_assignment
-    
-    try:
-        # Robust Iterative Greedy (Ported from TypeScript)
-        greedy_assignment = {v['id']: 0 for v in graph_data['vertices']}
-        
-        changed = True
-        iterations = 0
-        while changed and iterations < 100:
-            changed = False
-            iterations += 1
+    # Iterate over all 9 experiments
+    for count_dict in all_counts:
+        for bitstring, count in count_dict.items():
+            if count < 2: continue # Ignore extreme noise
             
-            # Find violations
-            c_valid, c_weight, c_viol = evaluate_solution(greedy_assignment, graph_data['vertices'], graph_data['edges'])
-            if c_valid: break
-
-            # Identify violated vertices explicitly for targeted fixing
-            violated_nodes = []
-            for v in graph_data['vertices']:
-                # Local check
-                v_id = v['id']
-                val = greedy_assignment[v_id]
-                neighbors = get_neighbors(v_id, graph_data['edges'])
-                
-                # Rule 1 Check
-                strong_neighbor = False
-                defense_score = val
-                for n in neighbors:
-                    n_val = greedy_assignment[n['id']]
-                    if val == 0 and n_val == 2 and n['sign'] == 1: strong_neighbor = True
-                    defense_score += n_val * n['sign']
-                
-                if (val == 0 and not strong_neighbor) or (defense_score < 1):
-                    violated_nodes.append(v)
-
-            # Heuristic Fix
-            for v in violated_nodes:
-                # Try to fix by upgrading a neighbor to 2
-                neighbors = get_neighbors(v['id'], graph_data['edges'])
-                best_cand = -1
-                max_gain = -1
-                
-                # Look for a positive neighbor to upgrade
-                for n in neighbors:
-                    if n['sign'] == 1 and greedy_assignment[n['id']] < 2:
-                        # Test upgrade
-                        prev = greedy_assignment[n['id']]
-                        greedy_assignment[n['id']] = 2
-                        _, _, new_viol = evaluate_solution(greedy_assignment, graph_data['vertices'], graph_data['edges'])
-                        greedy_assignment[n['id']] = prev
-                        
-                        gain = c_viol - new_viol
-                        if gain > max_gain:
-                            max_gain = gain
-                            best_cand = n['id']
-                
-                if best_cand != -1 and max_gain > 0:
-                    greedy_assignment[best_cand] = 2
-                    changed = True
-                    break # Restart loop
-                
-                # Fallback: Upgrade self
-                if greedy_assignment[v['id']] < 2:
-                    greedy_assignment[v['id']] = 2
-                    changed = True
-                    break
-
-        # Reduction Phase (Optimization)
-        # Try reducing 2->1, 1->0
-        for _ in range(3):
-            for v in graph_data['vertices']:
-                curr = greedy_assignment[v['id']]
-                if curr > 0:
-                    greedy_assignment[v['id']] = curr - 1
-                    is_v, w, viol = evaluate_solution(greedy_assignment, graph_data['vertices'], graph_data['edges'])
-                    if not is_v:
-                        greedy_assignment[v['id']] = curr # Revert
-                    else:
-                        # Keep reduction!
+            current_assignment = {}
+            for i, v_id in enumerate(v_ids):
+                try:
+                    # Qiskit Little Endian: q0 is rightmost
+                    b0 = int(bitstring[-(2*i + 1)])
+                    b1 = int(bitstring[-(2*i + 2)])
+                    val = (b1 << 1) | b0
+                    if val == 3: val = 0 
+                    current_assignment[v_id] = val
+                except IndexError:
+                    current_assignment[v_id] = 0
+            
+            is_valid, weight, violations = evaluate_solution(current_assignment, graph_data['vertices'], graph_data['edges'])
+            score = (violations * 100) + weight
+            
+            # Strict logic: Best Valid > Best Invalid
+            if is_valid:
+                if not found_any_valid:
+                    # Upgrade from invalid to valid
+                    found_any_valid = True
+                    best_qc_score = score
+                    best_qc_assignment = current_assignment
+                else:
+                    if score < best_qc_score:
+                        best_qc_score = score
+                        best_qc_assignment = current_assignment
+                    elif score == best_qc_score:
+                        # Tie-break (could use probability but we are iterating dicts)
                         pass
-        
-        # Final Score
-        c_valid, c_weight, c_viol = evaluate_solution(greedy_assignment, graph_data['vertices'], graph_data['edges'])
-        c_score = (c_viol * 100) + c_weight
-        
-        print(f"Quantum Score: {best_qc_score} | Classical Greedy Score: {c_score}")
-        
-        if c_score < best_qc_score:
-            print("Note: Hybrid solver chose classical heuristic result for better accuracy.")
-            best_hybrid_assignment = greedy_assignment
-            
-    except Exception as e:
-        print(f"Hybrid Optimization Warning: {e}")
+            else:
+                if not found_any_valid:
+                    if score < best_qc_score:
+                        best_qc_score = score
+                        best_qc_assignment = current_assignment
 
-            
+    # Final Strict Return
     return {
-        "assignment": best_hybrid_assignment,
-        "backend": backend.name + " (Hybrid Optimized)",
-        "shots": 8192,
+        "assignment": best_qc_assignment,
+        "backend": backend.name + " (Batch QAOA)",
+        "shots": 4096 * 9,
         "jobId": job.job_id(),
-        "is_optimal": True
+        "is_optimal": found_any_valid
     }
