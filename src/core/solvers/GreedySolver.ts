@@ -22,80 +22,69 @@ export class GreedySolver implements Solver {
 
         // Simple heuristic: Iterate and defend
         let changed = true;
-        while (changed) {
+        let iterations = 0;
+        const MAX_ITERATIONS = 1000; // Safety brake
+
+        while (changed && iterations < MAX_ITERATIONS) {
             changed = false;
+            iterations++;
             const undefended = problem.getViolations(assignment);
 
             if (undefended.length === 0) break;
 
-            // Pick an undefended vertex
-            // Heuristic: Pick one with max positive neighbors to maximize "bang for buck"?
-            // Or pick one with ANY positive neighbor?
-            const v = undefended[0]; // Simple selection
+            // Iterate through all violations to find one we can fix
+            for (const v of undefended) {
+                // Try to find a neighbor to set to 2
+                const neighbors = graph.getNeighbors(v);
+                let bestCandidate = -1;
+                let maxCover = -1;
 
-            // Try to find a neighbor to set to 2
-            const neighbors = graph.getNeighbors(v);
+                // 1. Look for helpful neighbor
+                for (const u of neighbors) {
+                    const edge = graph.getEdge(v, u);
+                    const isPositive = edge?.sign === 1;
 
-            // Prefer setting a neighbor that is already 1 or 2? No, 2 is already defending.
-            // Prefer setting a neighbor that covers MOST undefended vertices.
+                    if (isPositive) {
+                        if ((assignment.get(u) ?? 0) < 2) {
+                            // Test upgrade
+                            assignment.set(u, 2);
+                            const newViolations = problem.getViolations(assignment).length;
+                            assignment.set(u, 0); // Revert (assuming it was 0? Safer to store prev val)
+                            // Actually, greedy usually assumes we flip 0->2. 
+                            // If u was 1, we should revert to 1.
+                            // Let's rely on standard greedy flow: usually starts at 0.
+                            // But safer:
+                            const prevU = assignment.get(u) ?? 0;
+                            assignment.set(u, 2);
+                            const currentViolations = problem.getViolations(assignment).length;
+                            assignment.set(u, prevU);
 
-            let bestCandidate = -1;
-            let maxCover = -1;
-
-            // Candidates: v itself (set to 1 or 2) OR favorable neighbors (set to 2)
-            // Option A: Set f(v) = 1 (Weight +1, defends v)
-            // Option B: Set f(v) = 2 (Weight +2, defends v + positive neighbors)
-            // Option C: Set f(u) = 2 (Weight +2, defends u + positive neighbors including v)
-
-            // Let's try to set a neighbor u to 2 if feasible
-            for (const u of neighbors) {
-                // Check edge sign if variant requires positive
-                const edge = graph.getEdge(v, u);
-                const isPositive = edge?.sign === 1;
-
-                // If variant A or C, usually need positive edge to defend.
-                // If variant B, positive edge defends but negative blocks.
-
-                // Simplified: Just look for a positive neighbor to upgrade
-                if (isPositive) {
-                    // Evaluate impact
-                    if ((assignment.get(u) ?? 0) < 2) {
-                        // hypothetically set to 2
-                        assignment.set(u, 2);
-                        const newViolations = problem.getViolations(assignment).length;
-                        assignment.set(u, 0); // revert
-
-                        const profit = undefended.length - newViolations;
-                        if (profit > maxCover) {
-                            maxCover = profit;
-                            bestCandidate = u;
+                            const profit = undefended.length - currentViolations;
+                            if (profit > maxCover) {
+                                maxCover = profit;
+                                bestCandidate = u;
+                            }
                         }
                     }
                 }
-            }
 
-            // Also consider setting v itself to 1 or 2
-            // Setting v=1 costs 1, covers v
-            // Setting v=2 costs 2, covers v + neighbors
-
-            // ... Logic can get complex. 
-            // Fallback: If no good neighbor, set v=1 (self-defense)
-            if (bestCandidate !== -1 && maxCover > 0) {
-                assignment.set(bestCandidate, 2);
-                changed = true;
-            } else {
-                // Try setting v=2?
-                assignment.set(v, 2);
-                // If that doesn't work (e.g. massive negative attacks?), try v=1?
-                if (!problem.isValid(assignment)) {
-                    // check if v is still violation
-                    if (problem.getViolations(assignment).includes(v)) {
-                        // 2 didn't fix it? (maybe blocking constraint)
-                        // Try 1?
-                        assignment.set(v, 1);
-                    }
+                // 2. Apply best neighbor move if found
+                if (bestCandidate !== -1 && maxCover > 0) {
+                    assignment.set(bestCandidate, 2);
+                    changed = true;
+                    break; // Restart loop to refreshing violations
                 }
-                changed = true;
+
+                // 3. Fallback: Try upgrading v itself
+                const currentV = assignment.get(v) ?? 0;
+                if (currentV < 2) {
+                    assignment.set(v, 2);
+                    changed = true;
+                    break;
+                }
+
+                // If v is already 2 and violation persists (e.g. negative neighbors dominate?), 
+                // we move to next v in 'undefended'. We don't verify 'changed' here.
             }
         }
 

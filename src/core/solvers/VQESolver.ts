@@ -100,16 +100,58 @@ export class VQESolver implements Solver {
         const finalState = circuit.run(bestParams);
         const finalProbs = finalState.getProbabilities();
 
-        let maxProb = -1;
         let bestFinalAssignment = new Map<number, RDFValue>();
+        let minWeight = Infinity;
+        let bestProb = -1;
+
+        // Default to all 0s (safeguard)
         for (const v of graph.vertices.keys()) bestFinalAssignment.set(v, 0);
 
+        // Robust Post-Processing: Find Best VALID State
+        // Instead of just taking max probability, we look for the lowest weight valid solution 
+        // that appeared with reasonable probability (e.g. > 0.001 or top K).
+
+        let foundValid = false;
+
         for (let i = 0; i < finalProbs.length; i++) {
-            if (finalProbs[i] > maxProb) {
-                const assignment = decode(i);
-                if (assignment) {
-                    maxProb = finalProbs[i];
-                    bestFinalAssignment = assignment;
+            if (finalProbs[i] < 1e-5) continue; // Ignore noise
+
+            const assignment = decode(i);
+            if (assignment) {
+                const isValid = problem.isValid(assignment);
+                const weight = problem.calculateWeight(assignment);
+
+                // Logic:
+                // 1. Prioritize Validity.
+                // 2. If both valid, prioritize Lower Weight.
+                // 3. If weights equal, prioritize Higher Probability.
+
+                if (isValid) {
+                    if (!foundValid) {
+                        // First valid found
+                        foundValid = true;
+                        minWeight = weight;
+                        bestProb = finalProbs[i];
+                        bestFinalAssignment = assignment;
+                    } else {
+                        // Compare with existing valid
+                        if (weight < minWeight) {
+                            minWeight = weight;
+                            bestProb = finalProbs[i];
+                            bestFinalAssignment = assignment;
+                        } else if (weight === minWeight && finalProbs[i] > bestProb) {
+                            bestProb = finalProbs[i];
+                            bestFinalAssignment = assignment;
+                        }
+                    }
+                } else if (!foundValid) {
+                    // If we haven't found ANY valid yet, keep track of "most likely invalid" 
+                    // or just "best effort" (max prob)
+                    if (finalProbs[i] > bestProb) {
+                        bestProb = finalProbs[i];
+                        bestFinalAssignment = assignment;
+                        // Don't update minWeight since it's invalid
+                    }
                 }
             }
         }
