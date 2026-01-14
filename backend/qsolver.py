@@ -131,18 +131,25 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
     v_map = {v['id']: i for i, v in enumerate(sorted_vertices)}
     
     # Cost Layer (Hamiltonian)
-    # CRITICAL FIX: We must respect the edge sign!
-    # A negative edge (-1) creates "Frustration" different from a positive edge (+1).
-    # We flip the rotation angle for negative edges.
+    # 1. Edge Constraints (Interaction Term)
+    # We respect the edge sign!
     for e in graph_data['edges']:
         u_idx = v_map.get(e['source'])
         v_idx = v_map.get(e['target'])
         sign = e.get('sign', 1)
         
         if u_idx is not None and v_idx is not None:
-            # RZZ(theta) evolves phase based on parity. 
-            # Flipping sign implies favoring different parity alignment.
+            # RZZ(theta) evolves phase based on parity (Interaction Energy)
             qc_p.rzz(p_gamma * sign, 2 * u_idx, 2 * v_idx)
+
+    # 2. Node Weight & Domination Bias (Linear Field Term)
+    # Standard SRDF minimizes Weight. We must bias the state towards lower values (0).
+    # We apply a Z-rotation to every qubit. This corresponds to an external magnetic field.
+    # It penalizes '1' states, effectively acting as the "Minimize Weight" term in the objective.
+    for i in range(num_qubits):
+        # Apply field proportional to gamma (adiabatic evolution principle)
+        # Using 0.5 coefficient to balance with interaction strength
+        qc_p.rz(p_gamma * 0.5, i)
 
     # Mixing Layer
     qc_p.rx(2 * p_beta, range(num_qubits))
@@ -156,12 +163,13 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
     ordered_params = list(isa_qc.parameters)
     batch_bindings = []
     
+    # Sweep
     for b in betas:
         for g in gammas:
             vals = []
             for p in ordered_params:
-                if p.name == 'gamma': vals.append(g)
-                elif p.name == 'beta': vals.append(b)
+                if p.id == p_gamma.id or p.name == 'gamma': vals.append(g)
+                elif p.id == p_beta.id or p.name == 'beta': vals.append(b)
             batch_bindings.append(vals)
             
     # Run Batch
