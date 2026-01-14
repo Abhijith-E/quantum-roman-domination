@@ -106,23 +106,16 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
     if num_qubits > 127:
         raise Exception("Graph too large (max 63 vertices).")
 
-    # --- STRICT QUANTUM ALGORITHM (BATCH QAOA) ---
-    # User Requirement: strict adherence to Quantum Algorithm (no classical fallback).
-    # Strategy: Run Parallel Variational Sweep to maximize probability of finding ground state.
+    # --- STRICT QUANTUM ALGORITHM (BATCH QAOA OPTIMIZED) ---
+    # Strategy: 
+    # 1. Physics-Informed Hamiltonian: Encode Edge Signs (-1/+1) into Phase.
+    # 2. High-Res Sweep: 5x5 Grid (25 parallel circuits).
     
-    # Generate Parameter Grid (3x3 = 9 variations)
-    # This explores the cost landscape to find the best interference pattern
-    betas = np.linspace(0.1, np.pi/2, 3)
-    gammas = np.linspace(0.1, np.pi, 3)
+    # Generate Parameter Grid (5x5 = 25 variations)
+    betas = np.linspace(0.1, np.pi/2, 5)
+    gammas = np.linspace(0.1, np.pi, 5)
     
     pubs = []
-    
-    # Reuse the base circuit structure 'qc' but we need to bind parameters if we used ParameterVector
-    # Since current code hardcoded floats, we must rebuild circuits or use bindings.
-    # To save code churn, let's just loop and build 9 distinct circuits. 
-    # It's fast enough for client-side generation.
-    
-    isa_circuits = []
     
     from qiskit.circuit import Parameter
     
@@ -137,12 +130,19 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
     sorted_vertices = sorted(graph_data['vertices'], key=lambda x: x['id'])
     v_map = {v['id']: i for i, v in enumerate(sorted_vertices)}
     
-    # Cost Layer
+    # Cost Layer (Hamiltonian)
+    # CRITICAL FIX: We must respect the edge sign!
+    # A negative edge (-1) creates "Frustration" different from a positive edge (+1).
+    # We flip the rotation angle for negative edges.
     for e in graph_data['edges']:
         u_idx = v_map.get(e['source'])
         v_idx = v_map.get(e['target'])
+        sign = e.get('sign', 1)
+        
         if u_idx is not None and v_idx is not None:
-            qc_p.rzz(p_gamma, 2 * u_idx, 2 * v_idx)
+            # RZZ(theta) evolves phase based on parity. 
+            # Flipping sign implies favoring different parity alignment.
+            qc_p.rzz(p_gamma * sign, 2 * u_idx, 2 * v_idx)
 
     # Mixing Layer
     qc_p.rx(2 * p_beta, range(num_qubits))
@@ -152,31 +152,12 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
     pm = generate_preset_pass_manager(backend=backend, optimization_level=3)
     isa_qc = pm.run(qc_p)
     
-    # Create Batch Inputs (Primitive Unified Blocs)
-    # Format: (circuit, [parameter_values])
-    # We submit ONE job with MULTIPLE parameter sets.
-    
-    param_sets = []
-    for b in betas:
-        for g in gammas:
-             param_sets.append([g, b]) # Order depends on binding order?
-             # isa_qc.parameters will show order. Usually alphabetical or insertion.
-             # Safest to assign bindings map if possible, but SamplerV2 takes array matching circuit.parameters
-    
-    # Ensure param order
-    # isa_qc.parameters is a ParameterView. 
-    # We need to match that order.
-    # Simple workaround: Bind specific values to create specific circuits if uncertain, 
-    # but SamplerV2 supports PUBs (circuit, points).
-    
-    # Let's trust ordering: [gamma, beta] or [beta, gamma]
-    # We will just verify:
+    # Create Batch Inputs
     ordered_params = list(isa_qc.parameters)
-    # Create the binding array based on this order
     batch_bindings = []
+    
     for b in betas:
         for g in gammas:
-            # Map params
             vals = []
             for p in ordered_params:
                 if p.name == 'gamma': vals.append(g)
@@ -187,10 +168,9 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
     from qiskit_ibm_runtime import SamplerV2 as Sampler
     sampler = Sampler(mode=backend)
     
-    # Submit as one PUB: (circuit, bindings_array)
-    # This runs the SAME circuit with DIFFERENT parameters efficiently.
-    job = sampler.run([(isa_qc, batch_bindings)], shots=4096)
-    print(f"Batch Job submitted: {job.job_id()} (9 Parameter Sets)")
+    # Submit 25 configurations in one job
+    job = sampler.run([(isa_qc, batch_bindings)], shots=2048)
+    print(f"Batch Job submitted: {job.job_id()} (25 Parameter Sets)")
     
     # Get Results
     result = job.result()
