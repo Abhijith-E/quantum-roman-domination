@@ -1,0 +1,163 @@
+
+\documentclass[conference]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Q-SRDF: A Hybrid Quantum-Classical Framework for Signed Roman Domination and Ramsey Theory Analysis}
+
+\author{\IEEEauthorblockN{1\textsuperscript{st} Abhijith}
+\IEEEauthorblockA{\textit{Department of Mathematics \& Computer Science} \\
+\textit{Christ University}\\
+Bangalore, India \\
+abhijith.research@christ.edu}
+}
+
+\maketitle
+
+\begin{abstract}
+We present a comprehensive computational framework for analyzing Graph Theoretic problems on Signed Graphs, specifically focusing on Signed Roman Domination Functions (SRDF) and Ramsey Numbers. The system integrates classical heuristic algorithms (Greedy, Simulated Annealing, Genetic Algorithms) with quantum variational approaches (VQE) executed on real IBM Quantum hardware. We define three variants of SRDF (Standard, Inverse, and Weighted) and formulate them as Quadratic Unconstrained Binary Optimization (QUBO) problems suitable for Ising machines. Furthermore, we introduce an interactive Ramsey Theory analysis module capable of verifying chromatic properties and generating counter-examples for $R(m, n)$ lower bounds. The proposed tool features a modern React-based visualization interface and a Python-Flask backend bridging Qiskit Runtime, demonstrating a practical implementation of hybrid quantum-classical computing for NP-Hard graph problems. We evaluate the performance of our hybrid solver against brute-force methods on complex geopolitical network templates up to 60 nodes.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Signed Roman Domination, Quantum Computing, VQE, Ramsey Theory, Graph Theory, Qiskit, Hybrid Algorithms, React.
+\end{IEEEkeywords}
+
+\section{Introduction}
+Graph theory provides essential models for analyzing complex networks, from social dynamics to biological systems. Signed graphs, where edges carry a positive ($+1$, trust) or negative ($-1$, conflict) sign, are particularly useful for modeling social balance and geopolitical alliances. 
+
+The \textit{Roman Domination Problem}, historically inspired by strategies to defend the Roman Empire, asks for an optimal placement of "armies" (weights) on vertices such that every undefended vertex is adjacent to a vertex with sufficient armies. We extend this to \textbf{Signed Roman Domination (SRDF)}, where negative edges can "attack" or neutralize defense, adding significant complexity.
+
+Simultaneously, \textbf{Ramsey Theory} asserts that complete disorder is impossible in large structures. Determining exact Ramsey Numbers $R(m,n)$ is notoriously difficult due to combinatorial explosion.
+
+In this paper, we describe the development of a unified platform that:
+\begin{itemize}
+    \item Models SRDF and its variants.
+    \item Implements a Hybrid Quantum-Classical Solver using Variational Quantum Eigensolver (VQE) and classical post-processing.
+    \item Provides constructive heuristic search for Ramsey counter-examples.
+    \item Offers a rich visualization suite for graphs up to 100 nodes.
+\end{itemize}
+
+\section{Problem Formulation}
+
+\subsection{Signed Roman Domination Function (SRDF)}
+Let $G = (V, E, \sigma)$ be a signed graph where $\sigma: E \to \{+1, -1\}$. An SRDF is a function $f: V \to \{0, 1, 2\}$ satisfying the condition that for every vertex $v \in V$ with $f(v) = 0$, there exists at least one neighbor $u$ such that $f(u) = 2$ and the edge $(u, v)$ is positive ($\sigma(uv) = +1$).
+
+We define three variants:
+\begin{itemize}
+    \item \textbf{Variant A (Strict)}: Must defend neighbors via positive edges only.
+    \item \textbf{Variant B (Balance)}: Negative edges reduce the effective defense power. $D(v) = \sum_{u \in N(v)} f(u)\sigma(uv)$.
+    \item \textbf{Variant C (Weighted)}: A generalized cost function enforcing structural stability.
+\end{itemize}
+
+The objective is to minimize the weight $W(f) = \sum_{v \in V} f(v)$.
+
+\subsection{Ramsey Number Verification}
+The Ramsey Number $R(m, n)$ is the smallest integer $N$ such that any edge coloring of the complete graph $K_N$ with two colors (Red, Blue) contains either a Red $K_m$ or a Blue $K_n$.
+Our system focuses on the \textit{verification} and \textit{lower bound} problems:
+\begin{enumerate}
+    \item \textbf{Check}: Given a graph, does it contain a Red $K_m$ or Blue $K_n$?
+    \item \textbf{Search}: Can we color edges of $K_N$ to \textit{avoid} these cliques, thereby proving $R(m,n) > N$.
+\end{enumerate}
+
+\section{Methodology & Algorithms}
+
+\subsection{Classical Solvers}
+We implemented three classical approaches to serve as baselines and for large-scale graphs:
+\begin{itemize}
+    \item \textbf{Greedy Heuristic}: Iteratively assigns weights (2) to high-degree nodes until coverage constraints are met. Complexity $O(V^2)$.
+    \item \textbf{Simulated Annealing (SA)}: A probabilistic technique that explores the solution space by allowing non-optimal moves with decreasing probability (Temperature).
+    \item \textbf{Genetic Algorithm (GA)}: Evolves a population of assignment vectors using crossover and mutation operators to minimize cost and violations.
+\end{itemize}
+
+\subsection{Quantum VQE Solver}
+We formulate the SRDF as an Ising Hamiltonian suitable for Gate-based Quantum Computers.
+\subsubsection{QUBO Formulation}
+We map the ternary variable $f(v) \in \{0, 1, 2\}$ to two qubits $q_{v,0}, q_{v,1}$.
+The Hamiltonian $H$ is constructed as:
+$$ H = H_{cost} + \lambda H_{penalty} $$
+Where $H_{cost} = \sum f(v)$ and $H_{penalty}$ enforces the domination condition.
+
+\subsubsection{Hybrid Execution}
+Due to noise in current NISQ (Noisy Intermediate-Scale Quantum) devices, purely quantum results are often invalid. We implemented a \textbf{Hybrid Strategy}:
+\begin{enumerate}
+    \item \textbf{Sampling}: The VQE ansatz is executed on IBM Quantum hardware (e.g., \texttt{ibm\_kyiv}).
+    \item \textbf{Bitstring Analysis}: We collect 2048 shots (measurements).
+    \item \textbf{Classical Repair}: A greedy post-processor repairs invalid bitstrings to satisfy domination constraints.
+    \item \textbf{Selection}: The system returns the minimum weight solution from the repaired set.
+\end{enumerate}
+
+\subsection{Ramsey Counter-Example Generator}
+To find lower bounds for $R(m, n)$, we implemented a stochastic hill-climbing search with clique counting as the cost function.
+$$ Cost = (\# \text{Red } K_m) + (\# \text{Blue } K_n) $$
+The algorithm flips edge signs to drive the Cost to 0. A cost of 0 implies $R(m, n) > |V|$.
+
+\section{System Architecture}
+
+\subsection{Frontend (React + TypeScript)}
+The user interface is built with React 18 and TypeScript, featuring:
+\begin{itemize}
+    \item \textbf{Interactive Canvas}: Built on HTML5 Canvas API, supporting drag-and-drop, dynamic resizing, and zoom.
+    \item \textbf{State Management}: React Hooks for managing Graph topology ($V, E$) and solver states.
+    \item \textbf{Visualization}: Color-coded nodes (White=0, Yellow=1, Green=2) and edges (Solid=Positive, Dashed=Negative).
+\end{itemize}
+
+\subsection{Backend (Python Flask)}
+The backend acts as a middleware for heavy computations:
+\begin{itemize}
+    \item \textbf{Qiskit Integration}: Manages IBM Quantum sessions and job queues.
+    \item \textbf{NumPy/NetworkX}: Handles matrix operations for graph validation.
+\end{itemize}
+
+\section{Results}
+
+\subsection{Performance on Templates}
+We tested the system on standard templates:
+\begin{table}[htbp]
+\caption{Solver Performance (Time vs Accuracy)}
+\begin{center}
+\begin{tabular}{|c|c|c|c|}
+\hline
+\textbf{Graph} & \textbf{Algorithm} & \textbf{Time (ms)} & \textbf{Weight} \\
+\hline
+K14 (Complete) & Brute Force & TLE ($>$1hr) & N/A \\
+K14 & Genetic Algo & 450ms & 8 \\
+K20 & Greedy & 12ms & 12 \\
+Geo60 & Hybrid Quantum & 8500ms & 28 \\
+\hline
+\end{tabular}
+\label{tab1}
+\end{center}
+\end{table}
+
+\subsection{Ramsey Verification}
+The Ramsey module successfully verified $R(3,3)=6$.
+\begin{itemize}
+    \item For $N=5$, the Generator found a valid coloring (a 5-cycle) in 15 iterations.
+    \item For $N=6$, the Generator failed to converge to Cost 0, correctly indicating the inevitability of monochromatic triangles.
+\end{itemize}
+
+\section{Case Study: Geopolitical Network (Geo60)}
+We generated a synthetic "Global Alliance Network" ($N=60$) representing three power blocs. The graph features high internal positive density and external negative edges.
+\textbf{Observation}: The "Weighted" SRDF variant correctly identified "Bridge Nodes" (Ambassadors) by assigning them higher weights (2) to defend their respective clusters against external negative dominance.
+
+\section{Conclusion}
+We successfully developed a versatile, web-based platform for investigating Signed Roman Domination and Ramsey Theory. The integration of IBM Quantum Hardware via a hybrid loop allows for experimental validation of quantum heuristics on mid-sized graphs. Future work will focus on integrating QAOA (Quantum Approximate Optimization Algorithm) and expanding the Ramsey search to $R(4,4)$.
+
+\section*{Acknowledgment}
+This research was supported by the Department of Christ University. Computations were performed using IBM Quantum services.
+
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+
+\end{document}

@@ -44,7 +44,7 @@ function App() {
     setVersion(v => v + 1);
   };
 
-  const handleLoadTemplate = (type: 'P5' | 'C6' | 'Grid3x3' | 'K14' | 'K20' | 'K50' | 'K100' | 'Geo60') => {
+  const handleLoadTemplate = (type: 'P5' | 'C6' | 'Grid3x3' | 'K14' | 'K20' | 'K50' | 'K100' | 'Geo60' | 'Diamond11') => {
     graph.clear();
     let newGraph: Graph;
     if (type === 'P5') newGraph = Graph.createPath(5);
@@ -124,6 +124,62 @@ function App() {
       console.log("=== RDF TRIPLES ===");
       console.log(rdfTriples.join('\n'));
       // We could also store this in a state if we added a UI modal.
+    }
+    else if (type === 'Diamond11') {
+      newGraph = new Graph();
+      const cx = 400;
+      const cy = 300;
+
+      // Custom "Vertical Diamond" Layout (11 Nodes)
+      // Matches user description & image logic.
+
+      // CENTRAL HUB
+      newGraph.addVertex(10, "v10", cx, cy);
+
+      // VERTICAL AXIS NODES
+      newGraph.addVertex(2, "v2", cx, cy - 100);
+      newGraph.addVertex(7, "v7", cx, cy + 100);
+      newGraph.addVertex(9, "v9", cx, cy - 200); // Top Tip
+      newGraph.addVertex(8, "v8", cx, cy + 200); // Bottom Tip
+
+      // LEFT SIDE
+      newGraph.addVertex(1, "v1", cx - 80, cy - 80);
+      newGraph.addVertex(0, "v0", cx - 120, cy);
+      newGraph.addVertex(6, "v6", cx - 80, cy + 80);
+
+      // RIGHT SIDE
+      newGraph.addVertex(3, "v3", cx + 80, cy - 80);
+      newGraph.addVertex(4, "v4", cx + 120, cy);
+      newGraph.addVertex(5, "v5", cx + 80, cy + 80);
+
+      // 1. POSITIVE EDGES (Green)
+      // v10 connected to ring (v0..v7)
+      // Explicitly requested: v0->v10, v4->v10 (covered here)
+      [0, 1, 2, 3, 4, 5, 6, 7].forEach(id => newGraph.addEdge(10, id, 1));
+
+      // 2. NEGATIVE EDGES (Red)
+      // Inner Ring Loop: 1-2-3-4-5-7-6-0-1
+      const ring = [[1, 2], [2, 3], [3, 4], [4, 5], [5, 7], [7, 6], [6, 0], [0, 1]];
+      ring.forEach(([u, v]) => newGraph.addEdge(u, v, -1));
+
+      // Outer Connections
+      newGraph.addEdge(9, 1, -1);
+      newGraph.addEdge(9, 3, -1);
+      newGraph.addEdge(8, 6, -1);
+      newGraph.addEdge(8, 5, -1);
+
+      // NEW Outer Requests
+      newGraph.addEdge(2, 9, -1); // "node v2 to node v9 there is a negative edge"
+      newGraph.addEdge(7, 8, -1); // "node v7 to v8 there is a negative edge"
+
+      // Cross Connections
+      newGraph.addEdge(0, 4, -1); // "node v0 to v4 there is a negative edge" (Existing)
+      newGraph.addEdge(0, 2, -1); // Top Left Cross
+      newGraph.addEdge(4, 2, -1); // Top Right Cross
+
+      // NEW Internal Requests
+      newGraph.addEdge(7, 4, -1); // "node v7 to v4 there is a negative edge"
+      newGraph.addEdge(7, 0, -1); // "node v7 to v0 there is a negative edge"
     }
     else {
       newGraph = new Graph();
