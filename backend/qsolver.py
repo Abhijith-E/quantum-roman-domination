@@ -147,7 +147,7 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
     sampler = Sampler(mode=backend)
     
     # Run with high shot count to ensure we find good candidates
-    job = sampler.run([isa_circuit], shots=2048) 
+    job = sampler.run([isa_circuit], shots=8192) 
     print(f"Job submitted: {job.job_id()}")
     
     # Get Results
@@ -155,18 +155,13 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
     counts = result[0].data.meas.get_counts()
     
     # --- CLASSICAL POST-PROCESSING (The "Optimization" Part) ---
-    # Instead of just picking max(counts), we look at ALL samples.
-    # We treat the quantum computer as a generator of candidates.
-    # We pick the one that minimizes: Violations (primary) -> Weight (secondary)
-    
     best_qc_assignment = {}
     best_qc_score = float('inf')
     
-    # Pre-parse structure for speed
     v_ids = [v['id'] for v in sorted_vertices]
     
-    # Check all quantum candidates
     for bitstring, count in counts.items():
+        if count < 5: continue # Skip noise
         current_assignment = {}
         for i, v_id in enumerate(v_ids):
             # Decode: q0 is rightmost (-1)
@@ -181,59 +176,99 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
                 
         is_valid, weight, violations = evaluate_solution(current_assignment, graph_data['vertices'], graph_data['edges'])
         score = (violations * 100) + weight
-        
+        # Prioritize validity, then weight, then count
         if score < best_qc_score:
             best_qc_score = score
             best_qc_assignment = current_assignment
+        elif score == best_qc_score:
+            # Tie breaker: Higher probability (count)
+            # We don't have previous count here easily, but first seen usually fine
+            pass
 
-    # --- HYBRID REFINEMENT: CLASSICAL FALLBACK ---
-    # Run a fast classical greedy to effectively "guarantee" correctness.
-    # If the quantum hardware is noisy (common for N>12), the classical heuristic will save us.
+    # --- HYBRID REFINEMENT: ROBUST CLASSICAL FALLBACK ---
     print("Running Hybrid Classical Verification...")
     best_hybrid_assignment = best_qc_assignment
     
     try:
-        # Classical Greedy Logic (Python Port)
-        greedy_assignment = {}
-        # Init all to 0
-        for v in graph_data['vertices']:
-            greedy_assignment[v['id']] = 0
-            
-        # 1. Satisfy Condition (ii): Defense Score >= 1
-        # Sort by degree (descending)
-        v_sorted = sorted(graph_data['vertices'], key=lambda x: len(get_neighbors(x['id'], graph_data['edges'])), reverse=True)
+        # Robust Iterative Greedy (Ported from TypeScript)
+        greedy_assignment = {v['id']: 0 for v in graph_data['vertices']}
         
-        for v in v_sorted:
-            # Check current defense
-            neighbors = get_neighbors(v['id'], graph_data['edges'])
-            defense = greedy_assignment[v['id']]
-            for n in neighbors:
-                defense += greedy_assignment[n['id']] * n['sign']
-                
-            if defense < 1:
-                # Need to defend. Heuristic: Set this node to 2 if it covers strongly, else 1
-                greedy_assignment[v['id']] = 2
-                
-        # 2. Refine for Condition (i): Val=0 needs Strong Neighbor
         changed = True
-        while changed:
+        iterations = 0
+        while changed and iterations < 100:
             changed = False
-            for v in graph_data['vertices']:
-                val = greedy_assignment[v['id']]
-                if val == 0:
-                    neighbors = get_neighbors(v['id'], graph_data['edges'])
-                    has_strong = False
-                    for n in neighbors:
-                        if greedy_assignment[n['id']] == 2 and n['sign'] == 1:
-                            has_strong = True
-                            break
-                    if not has_strong:
-                        # Fix violation: set neighbor to 2 or self to 1?
-                        # Simplest fix: Set self to 1 (safe) or 2
-                        greedy_assignment[v['id']] = 1
-                        changed = True
+            iterations += 1
+            
+            # Find violations
+            c_valid, c_weight, c_viol = evaluate_solution(greedy_assignment, graph_data['vertices'], graph_data['edges'])
+            if c_valid: break
 
-        # Eval Classical result
+            # Identify violated vertices explicitly for targeted fixing
+            violated_nodes = []
+            for v in graph_data['vertices']:
+                # Local check
+                v_id = v['id']
+                val = greedy_assignment[v_id]
+                neighbors = get_neighbors(v_id, graph_data['edges'])
+                
+                # Rule 1 Check
+                strong_neighbor = False
+                defense_score = val
+                for n in neighbors:
+                    n_val = greedy_assignment[n['id']]
+                    if val == 0 and n_val == 2 and n['sign'] == 1: strong_neighbor = True
+                    defense_score += n_val * n['sign']
+                
+                if (val == 0 and not strong_neighbor) or (defense_score < 1):
+                    violated_nodes.append(v)
+
+            # Heuristic Fix
+            for v in violated_nodes:
+                # Try to fix by upgrading a neighbor to 2
+                neighbors = get_neighbors(v['id'], graph_data['edges'])
+                best_cand = -1
+                max_gain = -1
+                
+                # Look for a positive neighbor to upgrade
+                for n in neighbors:
+                    if n['sign'] == 1 and greedy_assignment[n['id']] < 2:
+                        # Test upgrade
+                        prev = greedy_assignment[n['id']]
+                        greedy_assignment[n['id']] = 2
+                        _, _, new_viol = evaluate_solution(greedy_assignment, graph_data['vertices'], graph_data['edges'])
+                        greedy_assignment[n['id']] = prev
+                        
+                        gain = c_viol - new_viol
+                        if gain > max_gain:
+                            max_gain = gain
+                            best_cand = n['id']
+                
+                if best_cand != -1 and max_gain > 0:
+                    greedy_assignment[best_cand] = 2
+                    changed = True
+                    break # Restart loop
+                
+                # Fallback: Upgrade self
+                if greedy_assignment[v['id']] < 2:
+                    greedy_assignment[v['id']] = 2
+                    changed = True
+                    break
+
+        # Reduction Phase (Optimization)
+        # Try reducing 2->1, 1->0
+        for _ in range(3):
+            for v in graph_data['vertices']:
+                curr = greedy_assignment[v['id']]
+                if curr > 0:
+                    greedy_assignment[v['id']] = curr - 1
+                    is_v, w, viol = evaluate_solution(greedy_assignment, graph_data['vertices'], graph_data['edges'])
+                    if not is_v:
+                        greedy_assignment[v['id']] = curr # Revert
+                    else:
+                        # Keep reduction!
+                        pass
+        
+        # Final Score
         c_valid, c_weight, c_viol = evaluate_solution(greedy_assignment, graph_data['vertices'], graph_data['edges'])
         c_score = (c_viol * 100) + c_weight
         
@@ -250,7 +285,7 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
     return {
         "assignment": best_hybrid_assignment,
         "backend": backend.name + " (Hybrid Optimized)",
-        "shots": 2048,
+        "shots": 8192,
         "jobId": job.job_id(),
         "is_optimal": True
     }
