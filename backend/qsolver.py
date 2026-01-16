@@ -168,8 +168,8 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
         for g in gammas:
             vals = []
             for p in ordered_params:
-                if p.id == p_gamma.id or p.name == 'gamma': vals.append(g)
-                elif p.id == p_beta.id or p.name == 'beta': vals.append(b)
+                if p.name == 'gamma': vals.append(g)
+                elif p.name == 'beta': vals.append(b)
             batch_bindings.append(vals)
             
     # Run Batch
