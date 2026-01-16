@@ -103,8 +103,14 @@ export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolu
                 });
             }
         } catch (e: any) {
-            console.error(e);
-            alert("Error: " + (e.message || e));
+            console.error("Solver Error:", e);
+            if (e instanceof TypeError && e.message.includes('fetch')) {
+                alert("❌ Connection Error: Failed to reach the backend server.\n\n" +
+                    "Please ensure the Python backend is running on http://127.0.0.1:5001\n" +
+                    "Try running: python backend/app.py");
+            } else {
+                alert("Error: " + (e.message || e));
+            }
         } finally {
             setIsRunning(false);
         }

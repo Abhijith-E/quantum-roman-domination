@@ -5,7 +5,7 @@ from flask_cors import CORS
 from qsolver import run_vqe_on_ibm, check_connection
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "*"}}) # Reverting to * for simplicity since we don't actually need credentials for this API
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -18,6 +18,7 @@ def get_status():
 
 @app.route('/run-ibm', methods=['POST'])
 def run_ibm():
+    print("Received IBM Quantum run request...")
     try:
         data = request.json
         api_token = data.get('apiToken')
@@ -33,7 +34,7 @@ def run_ibm():
         return jsonify(result)
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"FAILED Quantum execution: {e}")
         return jsonify({"error": str(e)}), 500
 
 import json

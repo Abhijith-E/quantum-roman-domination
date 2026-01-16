@@ -172,12 +172,13 @@ def run_vqe_on_ibm(api_token, graph_data, variant):
                 elif p.name == 'beta': vals.append(b)
             batch_bindings.append(vals)
             
-    # Run Batch
+    # Run Batch (SamplerV2 expects Pubs)
+    # Each Pub is (circuit, bindings, shots)
     from qiskit_ibm_runtime import SamplerV2 as Sampler
     sampler = Sampler(mode=backend)
     
-    # Submit 25 configurations in one job
-    job = sampler.run([(isa_qc, batch_bindings)], shots=2048)
+    # Submit 25 configurations in one job using the PUB format (circuit, parameter_values, shots)
+    job = sampler.run([(isa_qc, batch_bindings, 2048)])
     print(f"Batch Job submitted: {job.job_id()} (25 Parameter Sets)")
     
     # Get Results
