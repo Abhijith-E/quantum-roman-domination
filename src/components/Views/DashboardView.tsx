@@ -60,7 +60,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="grid grid-cols-12 gap-6 max-w-7xl mx-auto animate-fade-in-up">
 
             {/* LEFT COLUMN: Graph Editor */}
-            <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
+            <div className="col-span-12 xl:col-span-8 flex flex-col gap-6">
 
                 {/* Toolbar */}
                 <div className="flex flex-wrap items-center justify-between gap-y-2 bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-200">
@@ -141,7 +141,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             {/* RIGHT COLUMN: Controls & Analysis */}
-            <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
+            <div className="col-span-12 xl:col-span-4 flex flex-col gap-6">
 
                 {analysisMode === 'roman' ? (
                     <>
