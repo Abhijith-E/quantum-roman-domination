@@ -15,7 +15,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     React.useEffect(() => {
         const checkStatus = async () => {
             try {
-                const res = await fetch('http://127.0.0.1:5000/status');
+                const res = await fetch('http://127.0.0.1:5001/status');
                 if (!res.ok) throw new Error("Backend Offline");
                 const data = await res.json();
                 if (data.status === 'connected') {

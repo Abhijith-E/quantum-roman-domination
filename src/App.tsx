@@ -205,7 +205,13 @@ function App() {
   const attacks = isSigned ? problem.getAttackConflicts(assignment).length : 0;
 
   // Intercept solution found to save to history
-  const handleSolutionFound = (newAssignment: Map<number, RDFValue>, finalWeight: number) => {
+  const handleSolutionFound = (
+    newAssignment: Map<number, RDFValue>,
+    finalWeight: number,
+    timeTaken: number,
+    algo: string,
+    screenshot: string | null
+  ) => {
     setAssignment(newAssignment);
     // Auto-save to history
     saveToHistory(
@@ -213,7 +219,10 @@ function App() {
       newAssignment,
       isSigned ? variant : 'Classic',
       finalWeight,
-      problem.isValid(newAssignment)
+      problem.isValid(newAssignment),
+      algo,
+      timeTaken,
+      screenshot
     );
   };
 

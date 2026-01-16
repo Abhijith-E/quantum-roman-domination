@@ -32,7 +32,7 @@ export class Graph {
         this.adjacency.set(id, []);
     }
 
-    addEdge(source: number, target: number, sign: 1 | -1 = 1, metadata?: Record<string, any>): void {
+    addEdge(source: number, target: number, sign: 1 | -1 = 1, _metadata?: Record<string, any>): void {
         if (!this.vertices.has(source) || !this.vertices.has(target)) return;
         if (source === target) return; // No loops
 

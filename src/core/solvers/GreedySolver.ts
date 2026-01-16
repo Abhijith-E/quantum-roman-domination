@@ -48,7 +48,7 @@ export class GreedySolver implements Solver {
                         if ((assignment.get(u) ?? 0) < 2) {
                             // Test upgrade
                             assignment.set(u, 2);
-                            const newViolations = problem.getViolations(assignment).length;
+                            // const newViolations = problem.getViolations(assignment).length;
                             assignment.set(u, 0); // Revert (assuming it was 0? Safer to store prev val)
                             // Actually, greedy usually assumes we flip 0->2. 
                             // If u was 1, we should revert to 1.

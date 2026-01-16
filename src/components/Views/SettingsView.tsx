@@ -1,5 +1,4 @@
-import React from 'react';
-import { Settings as SettingsIcon, Monitor, Moon, Volume2, Trash2 } from 'lucide-react';
+import { Settings as SettingsIcon, Monitor, Trash2 } from 'lucide-react';
 
 export const SettingsView = () => {
     return (

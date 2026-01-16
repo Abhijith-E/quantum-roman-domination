@@ -12,7 +12,7 @@ import { SRDFVariant } from '../../core/graph/RDF';
 interface SolverPanelProps {
     graph: Graph;
     variant?: SRDFVariant;
-    onSolutionFound: (assignment: Map<number, RDFValue>, weight: number, timeMs: number) => void;
+    onSolutionFound: (assignment: Map<number, RDFValue>, weight: number, timeMs: number, algo: string) => void;
 }
 
 export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolutionFound }) => {
@@ -41,7 +41,7 @@ export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolu
                 const startTime = performance.now();
 
                 // Call Python Backend
-                const response = await fetch('http://127.0.0.1:5000/run-ibm', {
+                const response = await fetch('http://127.0.0.1:5001/run-ibm', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -74,11 +74,12 @@ export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolu
                 let w = 0;
                 newAssignment.forEach(v => w += v);
 
-                onSolutionFound(newAssignment, w, totalTime);
+                const algoName = `IBM Quantum (${data.backend})`;
+                onSolutionFound(newAssignment, w, totalTime, algoName);
                 setLastStats({
                     time: totalTime,
                     weight: w,
-                    algo: `IBM Quantum (${data.backend})`,
+                    algo: algoName,
                     jobId: data.jobId,
                     backend: data.backend
                 });
@@ -94,7 +95,7 @@ export const SolverPanel: React.FC<SolverPanelProps> = ({ graph, variant, onSolu
                 const solver = solverFactory();
                 const result = await solver.solve(graph, variant);
 
-                onSolutionFound(result.assignment, result.weight, result.executionTimeMs);
+                onSolutionFound(result.assignment, result.weight, result.executionTimeMs, selectedAlgo);
                 setLastStats({
                     time: result.executionTimeMs,
                     weight: result.weight,

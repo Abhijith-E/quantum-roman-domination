@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { RamseyChecker } from '../../core/graph/Ramsey';
 import type { RamseyResult } from '../../core/graph/Ramsey';
 import { useState } from 'react';
@@ -7,6 +8,7 @@ import { Graph } from '../../core/graph/Graph';
 import type { RDFValue } from '../../core/graph/Graph';
 import { SRDFVariant, RDFProblem } from '../../core/graph/RDF';
 import { GraphCanvas } from '../GraphCanvas/GraphCanvas';
+import type { GraphCanvasRef } from '../GraphCanvas/GraphCanvas';
 import { SolverPanel } from '../Controls/SolverPanel';
 import { ProblemTypeSelector } from '../Controls/ProblemTypeSelector';
 
@@ -24,7 +26,7 @@ interface DashboardViewProps {
     onClear: () => void;
     onLoadTemplate: (t: 'P5' | 'C6' | 'Grid3x3' | 'K14' | 'K20' | 'K50' | 'K100' | 'Geo60' | 'Diamond11') => void;
     // Callback for when solver finds solution (to trigger parent side effects like history save)
-    onSolutionFound: (assignment: Map<number, RDFValue>, weight: number, time: number) => void;
+    onSolutionFound: (assignment: Map<number, RDFValue>, weight: number, time: number, algo: string, screenshot: string | null) => void;
     problem: RDFProblem;
     // Analysis results passed down to avoid re-calc
     weight: number;
@@ -39,6 +41,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     onGraphChange, onClear, onLoadTemplate, onSolutionFound,
     weight, violations, attacks, isValid
 }) => {
+
+    // Canvas Ref for Screenshots
+    const canvasRef = useRef<GraphCanvasRef>(null);
 
     // Ramsey State
     const [analysisMode, setAnalysisMode] = useState<'roman' | 'ramsey'>('roman');
@@ -55,6 +60,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         onClear();
         setRamseyResult(null);
     }
+
+    const handleSolverSolution = (assignment: Map<number, RDFValue>, weight: number, time: number, algo: string) => {
+        const screenshot = canvasRef.current?.getScreenshot(assignment) ?? null;
+        onSolutionFound(assignment, weight, time, algo, screenshot);
+    };
 
     return (
         <div className="grid grid-cols-12 gap-6 max-w-7xl mx-auto animate-fade-in-up">
@@ -116,6 +126,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {/* Canvas Card */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative group">
                     <GraphCanvas
+                        ref={canvasRef}
                         graph={graph}
                         assignment={assignment}
                         onGraphChange={() => { onGraphChange(); setRamseyResult(null); }}
@@ -170,7 +181,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <SolverPanel
                             graph={graph}
                             variant={isSigned ? variant : undefined}
-                            onSolutionFound={onSolutionFound}
+                            onSolutionFound={handleSolverSolution}
                         />
                     </>
                 ) : (

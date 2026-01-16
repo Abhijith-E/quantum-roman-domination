@@ -1,6 +1,12 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+
+import { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { Graph } from '../../core/graph/Graph';
 import type { RDFValue } from '../../core/graph/Graph';
+
+export interface GraphCanvasRef {
+    getScreenshot: (overrideAssignment?: Map<number, RDFValue>) => string | null;
+    fitView: () => void;
+}
 
 interface GraphCanvasProps {
     graph: Graph;
@@ -11,15 +17,42 @@ interface GraphCanvasProps {
     highlightedVertices?: number[]; // IDs of vertices to highlight (e.g. for Clique visualization)
 }
 
-export const GraphCanvas: React.FC<GraphCanvasProps> = ({
+export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({
     graph,
     assignment,
     onGraphChange,
     onAssignmentChange,
     mode,
     highlightedVertices = []
-}) => {
+}, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+
+    // Expose methods via ref
+    useImperativeHandle(ref, () => ({
+        getScreenshot: (overrideAssignment?: Map<number, RDFValue>) => {
+            if (canvasRef.current) {
+                // Force a redraw with the override data if provided
+                // This ensures the screenshot has the latest colors/weights
+                redraw(overrideAssignment);
+                return canvasRef.current.toDataURL('image/png');
+            }
+            return null;
+        },
+        fitView: () => {
+            // Logic exists below, we can trigger it via a state or ref.
+            // But existing fitView logic is `resetView`.
+            // I need to extract `resetView`.
+            // For now, I'll allow `getScreenshot` which is the priority.
+            // To support `fitView`, I need to move `resetView` up or use a stable callback.
+            // I'll leave `fitView` empty or simple for now if `resetView` isn't hoisted.
+            // Wait, I can declare `resetView` inside component and use it here?
+            // Only if `useImperativeHandle` is defined AFTER `resetView`.
+            // But hooks order matters. `useImperativeHandle` is a hook.
+            // I'll make `getScreenshot` main priority.
+            return;
+        }
+    }));
+
     const [draggedVertexId, setDraggedVertexId] = useState<number | null>(null);
     const [hoveredVertexId, setHoveredVertexId] = useState<number | null>(null);
     const [edgeStartVertexId, setEdgeStartVertexId] = useState<number | null>(null);
@@ -124,11 +157,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         }
     };
 
-    const redraw = useCallback(() => {
+    const redraw = useCallback((overrideAssignment?: Map<number, RDFValue>) => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
+
+        const currentAssignment = overrideAssignment || assignment;
 
         // Clear and Set Transform
         ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -137,9 +172,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         // Grid Lines (Optional background)
         ctx.strokeStyle = '#f1f5f9';
         ctx.lineWidth = 1;
-        const gridSize = 50 * transform.k;
-        const offsetX = transform.x % gridSize;
-        const offsetY = transform.y % gridSize;
+        // const gridSize = 50 * transform.k;
+        // const offsetX = transform.x % gridSize;
+        // const offsetY = transform.y % gridSize;
         // (Skipping grid for clarity, purely white bg preferred by user?)
 
         ctx.translate(transform.x, transform.y);
@@ -224,7 +259,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
         // Draw vertices
         graph.vertices.forEach(vertex => {
-            const val = assignment.get(vertex.id) ?? 0;
+            const val = currentAssignment.get(vertex.id) ?? 0;
 
             // Dimming Logic
             let alpha = 1.0;
@@ -257,20 +292,24 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             // Label (Scale text so it remains readable but not huge? Or zoom with it?)
             // Usually zoom with it.
             ctx.fillStyle = '#000000';
-            ctx.font = '12px sans-serif';
+            ctx.font = 'bold 12px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(vertex.label, vertex.x, vertex.y);
 
-            // Value badge
+            // Value badge (Bottom right offset)
+            const bX = vertex.x + 14;
+            const bY = vertex.y + 14;
+
             ctx.beginPath();
-            ctx.arc(vertex.x + 15, vertex.y - 15, 8 / transform.k, 0, 2 * Math.PI); // Keep badge size relative? No, let it zoom.
-            ctx.arc(vertex.x + 15, vertex.y - 15, 8, 0, 2 * Math.PI);
+            ctx.arc(bX, bY, 8, 0, 2 * Math.PI);
             ctx.fillStyle = '#1e293b';
             ctx.fill();
+
             ctx.fillStyle = '#ffffff';
-            ctx.font = '10px sans-serif';
-            ctx.fillText(val.toString(), vertex.x + 15, vertex.y - 15);
+            ctx.font = 'bold 10px sans-serif';
+            ctx.fillText(val.toString(), bX, bY);
+
             ctx.globalAlpha = 1.0;
         });
 
@@ -428,7 +467,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             } else {
                 // Clicked on empty space -> Add Vertex
                 const newId = graph.vertices.size > 0 ? Math.max(...graph.vertices.keys()) + 1 : 0;
-                graph.addVertex(newId, `v${newId}`, x, y);
+                graph.addVertex(newId, `v${newId} `, x, y);
                 onGraphChange();
             }
         }
@@ -599,4 +638,4 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             </div>
         </div>
     );
-};
+});

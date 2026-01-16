@@ -10,6 +10,9 @@ export interface HistoryItem {
     isValid: boolean;
     verticesCount: number;
     edgesCount: number;
+    algo: string;
+    timeTaken: number;
+    screenshot?: string | null;
     graphData: {
         vertices: { id: number, x: number, y: number }[];
         edges: { source: number, target: number, sign: number }[];
@@ -31,12 +34,15 @@ export const useHistory = () => {
         }
     }, []);
 
-    const saveToHistory = (
+    const saveToHistory = async (
         graph: Graph,
         assignment: Map<number, RDFValue>,
         variant: SRDFVariant | 'Classic',
         weight: number,
-        isValid: boolean
+        isValid: boolean,
+        algo: string = 'Unknown',
+        timeTaken: number = 0,
+        screenshot: string | null = null
     ) => {
         const newItem: HistoryItem = {
             id: crypto.randomUUID(),
@@ -44,6 +50,9 @@ export const useHistory = () => {
             variant: variant.toString(),
             weight,
             isValid,
+            algo,
+            timeTaken,
+            screenshot,
             verticesCount: graph.vertices.size,
             edgesCount: graph.edges.length,
             graphData: {
@@ -56,6 +65,17 @@ export const useHistory = () => {
         const newHistory = [newItem, ...history];
         setHistory(newHistory);
         localStorage.setItem('rdf_history_v1', JSON.stringify(newHistory));
+
+        // Send to Backend Logging
+        try {
+            await fetch('http://localhost:5001/save-log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newItem)
+            });
+        } catch (err) {
+            console.error("Failed to save log to backend:", err);
+        }
     };
 
     const clearHistory = () => {
