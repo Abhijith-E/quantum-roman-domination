@@ -24,7 +24,7 @@ interface DashboardViewProps {
     setVariant: (v: SRDFVariant) => void;
     onGraphChange: () => void;
     onClear: () => void;
-    onLoadTemplate: (t: 'P5' | 'C6' | 'Grid3x3' | 'K14' | 'K20' | 'K50' | 'K100' | 'Geo60' | 'Diamond11') => void;
+    onLoadTemplate: (t: 'P5' | 'C6' | 'K14' | 'K20' | 'K50' | 'K100' | 'Geo60' | 'Diamond11' | 'jamesreshma20') => void;
     // Callback for when solver finds solution (to trigger parent side effects like history save)
     onSolutionFound: (assignment: Map<number, RDFValue>, weight: number, time: number, algo: string, screenshot: string | null) => void;
     problem: RDFProblem;
@@ -111,7 +111,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                     <div className="flex items-center gap-2">
                         <span className="text-xs font-medium text-slate-400 uppercase tracking-wider mr-2">Templates:</span>
-                        {['P5', 'C6', 'Grid3x3', 'K14', 'K20', 'K50', 'K100', 'Geo60', 'Diamond11'].map(t => (
+                        {['P5', 'C6', 'K14', 'K20', 'K50', 'K100', 'Geo60', 'Diamond11', 'jamesreshma20'].map(t => (
                             <button key={t} onClick={() => onLoadTemplate(t as any)} className="px-3 py-1 text-xs bg-slate-50 border border-slate-200 rounded hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors">
                                 {t}
                             </button>

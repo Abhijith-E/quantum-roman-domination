@@ -44,7 +44,7 @@ function App() {
     setVersion(v => v + 1);
   };
 
-  const handleLoadTemplate = (type: 'P5' | 'C6' | 'Grid3x3' | 'K14' | 'K20' | 'K50' | 'K100' | 'Geo60' | 'Diamond11') => {
+  const handleLoadTemplate = (type: 'P5' | 'C6' | 'K14' | 'K20' | 'K50' | 'K100' | 'Geo60' | 'Diamond11' | 'jamesreshma20') => {
     graph.clear();
     let newGraph: Graph;
     if (type === 'P5') newGraph = Graph.createPath(5);
@@ -181,16 +181,62 @@ function App() {
       newGraph.addEdge(7, 4, -1); // "node v7 to v4 there is a negative edge"
       newGraph.addEdge(7, 0, -1); // "node v7 to v0 there is a negative edge"
     }
+    else if (type === 'jamesreshma20') {
+      newGraph = new Graph();
+      // CYCLE 1: Nodes v0 to v7 (8 nodes)
+      const cx1 = 250, cy1 = 300, r1 = 120;
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * 2 * Math.PI - Math.PI / 2;
+        newGraph.addVertex(i, `v${i}`, cx1 + r1 * Math.cos(angle), cy1 + r1 * Math.sin(angle));
+      }
+      // Node v18 in center
+      newGraph.addVertex(18, "v18", cx1, cy1);
+
+      // Negative Edges Cycle 1
+      const c1_neg = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 0]];
+      c1_neg.forEach(([u, v]) => newGraph.addEdge(u, v, -1));
+
+      // Chords Negative Cycle 1
+      const c1_chords = [[1, 3], [3, 5], [5, 7], [7, 1], [2, 4], [4, 6], [6, 0], [0, 2]];
+      c1_chords.forEach(([u, v]) => newGraph.addEdge(u, v, -1));
+
+      // Center v18 connections
+      newGraph.addEdge(18, 7, -1);
+      newGraph.addEdge(18, 6, -1);
+      [0, 1, 2, 3, 4, 5].forEach(v => newGraph.addEdge(18, v, 1));
+
+      // CYCLE 2: Nodes v8 to v17 (10 nodes)
+      const cx2 = 650, cy2 = 300, r2 = 120;
+      for (let i = 8; i <= 17; i++) {
+        const angle = ((i - 8) / 10) * 2 * Math.PI - Math.PI / 2;
+        newGraph.addVertex(i, `v${i}`, cx2 + r2 * Math.cos(angle), cy2 + r2 * Math.sin(angle));
+      }
+      // Node v19 in center
+      newGraph.addVertex(19, "v19", cx2, cy2);
+
+      // Negative Edges Cycle 2
+      for (let i = 8; i <= 17; i++) {
+        const next = i === 17 ? 8 : i + 1;
+        newGraph.addEdge(i, next, -1);
+      }
+
+      // Chords Negative Cycle 2
+      const c2_chords = [[8, 10], [10, 12], [12, 14], [14, 16], [16, 8], [9, 11], [11, 13], [13, 15], [15, 17], [17, 9]];
+      c2_chords.forEach(([u, v]) => newGraph.addEdge(u, v, -1));
+
+      // Center v19 connections
+      newGraph.addEdge(19, 11, -1);
+      newGraph.addEdge(19, 16, -1);
+      [17, 8, 9, 10, 12, 13, 14, 15].forEach(v => newGraph.addEdge(19, v, 1));
+
+      // INTER-CYCLE CONNECTIONS (Positive)
+      const inter = [[7, 16], [7, 19], [7, 11], [6, 16], [6, 19], [6, 11]];
+      inter.forEach(([u, v]) => newGraph.addEdge(u, v, 1));
+    }
     else {
       newGraph = new Graph();
-      for (let r = 0; r < 3; r++) {
-        for (let c = 0; c < 3; c++) {
-          const id = r * 3 + c;
-          newGraph.addVertex(id, `v${id}`, 200 + c * 100, 200 + r * 100);
-          if (c > 0) newGraph.addEdge(id - 1, id);
-          if (r > 0) newGraph.addEdge(id - 3, id);
-        }
-      }
+      // Default to a small path if something goes wrong
+      newGraph = Graph.createPath(3);
     }
     graph.vertices = newGraph.vertices;
     graph.edges = newGraph.edges;
